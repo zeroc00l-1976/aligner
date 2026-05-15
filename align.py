@@ -9,6 +9,8 @@ from typing import Any
 
 
 TIME_PRECISION = 1000
+AUDIO_EXTENSIONS = {".wav", ".mp3"}
+OUTPUT_EXTENSIONS = (".json", ".srt", ".vtt")
 
 
 def seconds_to_srt_time(t: float) -> str:
@@ -163,10 +165,23 @@ def json_to_vtt(json_path: Path, vtt_path: Path) -> None:
 
 
 def find_audio_files(input_dir: Path) -> list[Path]:
-    exts = {".wav", ".mp3"}
-    files = [p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in exts]
+    files = [p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS]
     files.sort()
     return files
+
+
+def output_paths(output_dir: Path, stem: str) -> tuple[Path, Path, Path]:
+    return tuple(output_dir / f"{stem}{ext}" for ext in OUTPUT_EXTENSIONS)
+
+
+def ensure_outputs_writable(paths: tuple[Path, ...], overwrite: bool) -> None:
+    if overwrite:
+        return
+
+    existing = [path for path in paths if path.exists()]
+    if existing:
+        names = ", ".join(path.name for path in existing)
+        raise FileExistsError(f"Output file already exists: {names}. Use --force to overwrite.")
 
 
 def display_path(path: Path) -> str:
@@ -178,31 +193,76 @@ def display_path(path: Path) -> str:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Align audio to transcript using aeneas, output JSON/SRT/VTT.")
+    parser.add_argument("audio", nargs="?", help="Optional single audio file to align")
+    parser.add_argument("transcript", nargs="?", help="Optional transcript file for the single audio file")
     parser.add_argument("--input-dir", default="convert", help="Folder containing audio (.wav/.mp3) and .txt transcripts")
     parser.add_argument("--output-dir", default="aligned", help="Folder to write outputs (json/srt/vtt)")
     parser.add_argument("--language", default="eng", help="Aeneas language code, default: eng")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing output files")
     return parser.parse_args(argv)
 
 
+def align_file_pair(audio: Path, transcript: Path, output_dir: Path, language: str, tmp_dir: Path, overwrite: bool) -> None:
+    if audio.suffix.lower() not in AUDIO_EXTENSIONS:
+        raise ValueError(f"Unsupported audio file extension for {audio.name}; expected .wav or .mp3")
+
+    final_json, srt_path, vtt_path = output_paths(output_dir, audio.stem)
+    ensure_outputs_writable((final_json, srt_path, vtt_path), overwrite=overwrite)
+
+    audio_for_aeneas = audio
+    if audio.suffix.lower() != ".wav":
+        audio_for_aeneas = convert_to_wav(audio, tmp_dir)
+
+    json_path = run_alignment(audio_for_aeneas, transcript, output_dir, language=language)
+
+    if json_path.name != final_json.name:
+        final_json.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
+        json_path = final_json
+
+    json_to_srt(json_path, srt_path)
+    json_to_vtt(json_path, vtt_path)
+
+    print(f"      Wrote: {json_path.name}, {srt_path.name}, {vtt_path.name}\n")
+
+
+def selected_file_pair(args: argparse.Namespace) -> tuple[Path, Path] | None:
+    if not args.audio and not args.transcript:
+        return None
+    if not args.audio or not args.transcript:
+        raise ValueError("Provide both audio and transcript paths, or neither to process the input folder.")
+
+    return Path(args.audio).expanduser().resolve(), Path(args.transcript).expanduser().resolve()
+
+
 def cli(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-
-    input_dir = Path(args.input_dir).expanduser().resolve()
-    output_dir = Path(args.output_dir).expanduser().resolve()
-
-    if not input_dir.exists():
-        print(f"ERROR: input dir not found: {input_dir}")
-        return 1
-
-    audio_files = find_audio_files(input_dir)
-    if not audio_files:
-        print(f"No .wav or .mp3 files found in {input_dir}")
-        return 0
-
     try:
+        args = parse_args(argv)
+        file_pair = selected_file_pair(args)
+        output_dir = Path(args.output_dir).expanduser().resolve()
+
         with tempfile.TemporaryDirectory(prefix="aeneas_tmp_") as td:
             tmp_dir = Path(td)
 
+            if file_pair:
+                audio, transcript = file_pair
+                print("Running aeneas alignment")
+                print(f"      Audio:      {display_path(audio)}")
+                print(f"      Transcript: {display_path(transcript)}")
+                print(f"      Language:   {args.language}")
+                align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
+                return 0
+
+            input_dir = Path(args.input_dir).expanduser().resolve()
+            if not input_dir.exists():
+                print(f"ERROR: input dir not found: {input_dir}")
+                return 1
+
+            audio_files = find_audio_files(input_dir)
+            if not audio_files:
+                print(f"No .wav or .mp3 files found in {input_dir}")
+                return 0
+
+            failures = 0
             total = len(audio_files)
             for i, audio in enumerate(audio_files, start=1):
                 transcript = input_dir / f"{audio.stem}.txt"
@@ -216,26 +276,18 @@ def cli(argv: list[str] | None = None) -> int:
                 print(f"      Transcript: {display_path(transcript)}")
                 print(f"      Language:   {args.language}")
 
-                audio_for_aeneas = audio
-                if audio.suffix.lower() != ".wav":
-                    audio_for_aeneas = convert_to_wav(audio, tmp_dir)
+                try:
+                    align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
+                except FileExistsError as e:
+                    print(f"      Skipping: {e}\n")
+                except (FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
+                    failures += 1
+                    print(f"      ERROR: {e}\n", file=sys.stderr)
 
-                json_path = run_alignment(audio_for_aeneas, transcript, output_dir, language=args.language)
-
-                base_stem = audio.stem
-                final_json = output_dir / f"{base_stem}.json"
-                if json_path.name != final_json.name:
-                    final_json.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
-                    json_path = final_json
-
-                srt_path = output_dir / f"{base_stem}.srt"
-                vtt_path = output_dir / f"{base_stem}.vtt"
-
-                json_to_srt(json_path, srt_path)
-                json_to_vtt(json_path, vtt_path)
-
-                print(f"      Wrote: {json_path.name}, {srt_path.name}, {vtt_path.name}\n")
-    except (FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
+            if failures:
+                print(f"Completed with {failures} failed file(s).", file=sys.stderr)
+                return 1
+    except (FileExistsError, FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 

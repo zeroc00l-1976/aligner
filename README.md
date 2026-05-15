@@ -90,6 +90,27 @@ The script processes every top-level `.wav` and `.mp3` file in the input
 directory. If an audio file does not have a matching `.txt` transcript, it is
 skipped and the script continues with the next file.
 
+Existing output files are not overwritten unless you pass `--force`:
+
+```sh
+uv run aligner --force
+```
+
+## Aligning One File Pair
+
+To align one specific audio/transcript pair instead of processing the whole
+input folder, pass both paths:
+
+```sh
+uv run aligner path/to/interview.wav path/to/interview.txt
+```
+
+This still writes to `aligned/` by default. To choose a different output folder:
+
+```sh
+uv run aligner path/to/interview.wav path/to/interview.txt --output-dir path/to/output
+```
+
 To use custom folders:
 
 ```sh
@@ -131,8 +152,7 @@ the plain-text file.
 ## Current Limitations
 
 - The script only scans the top level of the input directory.
-- Existing output files with matching names are overwritten.
+- Existing output files are skipped unless `--force` is passed.
 - MP3 files are converted to temporary 16 kHz mono WAV files before alignment.
-- There are no automated tests yet.
 
 See `DEVELOPMENT.md` for maintainer notes and the suggested next cleanup pass.

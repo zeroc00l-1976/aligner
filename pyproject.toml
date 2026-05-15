@@ -21,3 +21,8 @@ py-modules = ["align"]
 
 [tool.uv.extra-build-dependencies]
 aeneas = ["numpy==1.23.5"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

@@ -64,32 +64,30 @@ The project installs a console command named `aligner`.
 ## Runtime Flow
 
 1. Parse `--input-dir`, `--output-dir`, and `--language`.
-2. Resolve the input and output directories.
-3. Find top-level `.wav` and `.mp3` files in the input directory.
-4. For each audio file, look for a same-stem `.txt` transcript.
-5. Convert non-WAV audio to temporary WAV.
-6. Run aeneas and write JSON.
-7. Convert JSON to SRT and VTT.
+2. If both positional file arguments are provided, align that single pair.
+3. If no positional file arguments are provided, run batch mode over the input
+   folder.
+4. In batch mode, find top-level `.wav` and `.mp3` files in the input directory.
+5. For each audio file, look for a same-stem `.txt` transcript.
+6. Refuse to overwrite existing outputs unless `--force` is passed.
+7. Convert non-WAV audio to temporary WAV.
+8. Run aeneas and write JSON.
+9. Convert JSON to SRT and VTT.
 
 ## Known Issues And Risks
 
-- **No tests:** time formatting, JSON conversion, missing transcript behavior,
-  and filename handling are untested.
 - **Large local media:** raw audio files in `convert/` can be very large and are
   ignored by Git.
 - **Generated outputs:** `aligned/` contains generated artifacts and is ignored
   by Git.
 - **No recursive processing:** nested input directories are ignored.
-- **Overwrite behavior:** existing output files are replaced without prompting.
+- **Basic test coverage only:** tests cover pure formatting/conversion behavior
+  and CLI validation, but not full aeneas alignment.
 
 ## Suggested Next Pass
 
-1. Add a small test suite around pure functions first:
-   - SRT/VTT time formatting.
-   - JSON to SRT conversion.
-   - JSON to VTT conversion.
-   - Audio/transcript matching.
-2. Add a dry-run or explicit overwrite policy if repeated processing matters.
+1. Add an integration fixture for a very short audio/transcript pair.
+2. Consider recursive input processing if real workflows need nested folders.
 3. Consider moving from a single-file module to a package if the code grows.
 
 ## Verification Commands
@@ -99,6 +97,7 @@ Basic environment check:
 ```sh
 uv sync
 uv run aligner --help
+uv run pytest
 ffmpeg -version
 ```
 
