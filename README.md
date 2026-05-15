@@ -48,7 +48,11 @@ Install `ffmpeg-full` for subtitle burning:
 brew install ffmpeg-full
 ```
 
-`ffmpeg-full` is keg-only, so either put it first on `PATH`:
+`ffmpeg-full` is keg-only, but `burn-subtitles` automatically checks common
+Homebrew locations for it when regular `ffmpeg` does not support subtitles.
+
+If your subtitle-capable ffmpeg is installed somewhere custom, either put it
+first on `PATH`:
 
 ```sh
 export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"
@@ -193,11 +197,11 @@ Existing output videos are not overwritten unless you pass `--force`:
 uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --force
 ```
 
-The helper uses ffmpeg's `subtitles` video filter, so your ffmpeg build must
-include libass/subtitles support. Check the ffmpeg that the app will use with:
+The helper uses ffmpeg's `subtitles` video filter, so at least one available
+ffmpeg build must include libass/subtitles support. Check Homebrew's full build
+with:
 
 ```sh
-ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles --help
 /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
 ```
 

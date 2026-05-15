@@ -7,8 +7,10 @@ from burn import (
     build_ffmpeg_command,
     ensure_output_writable,
     escape_filter_value,
+    ffmpeg_has_subtitles_filter,
     require_subtitles_filter,
     subtitles_filter,
+    subtitle_capable_ffmpeg_binary,
 )
 
 
@@ -79,14 +81,55 @@ def test_build_ffmpeg_command_uses_configured_ffmpeg_binary(
     assert cmd[0] == "/custom/ffmpeg"
 
 
-def test_require_subtitles_filter_rejects_ffmpeg_without_subtitles_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ffmpeg_has_subtitles_filter_detects_available_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     class Proc:
         returncode = 0
-        stdout = "Filters:\n ... drawtext\n"
+        stdout = "Filters:\n .. subtitles         V->V Render text subtitles\n"
         stderr = ""
 
-    monkeypatch.setattr("burn.require_ffmpeg", lambda: None)
     monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
+
+    assert ffmpeg_has_subtitles_filter("/custom/ffmpeg") is True
+
+
+def test_ffmpeg_has_subtitles_filter_rejects_missing_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Proc:
+        returncode = 0
+        stdout = "Filters:\n .. drawtext\n"
+        stderr = ""
+
+    monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
+
+    assert ffmpeg_has_subtitles_filter("/custom/ffmpeg") is False
+
+
+def test_subtitle_capable_ffmpeg_prefers_env_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALIGNER_FFMPEG", "/custom/ffmpeg")
+    monkeypatch.setattr("burn.ffmpeg_has_subtitles_filter", lambda binary: binary == "/custom/ffmpeg")
+
+    assert subtitle_capable_ffmpeg_binary() == "/custom/ffmpeg"
+
+
+def test_subtitle_capable_ffmpeg_rejects_bad_env_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALIGNER_FFMPEG", "/custom/ffmpeg")
+    monkeypatch.setattr("burn.ffmpeg_has_subtitles_filter", lambda binary: False)
+
+    with pytest.raises(RuntimeError, match="ALIGNER_FFMPEG"):
+        subtitle_capable_ffmpeg_binary()
+
+
+def test_subtitle_capable_ffmpeg_uses_homebrew_full_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALIGNER_FFMPEG", raising=False)
+    monkeypatch.setattr("burn.shutil.which", lambda binary: "/usr/bin/ffmpeg")
+    monkeypatch.setattr("burn.ffmpeg_has_subtitles_filter", lambda binary: binary.endswith("ffmpeg-full/bin/ffmpeg"))
+    monkeypatch.setattr("burn.HOMEBREW_FFMPEG_FULL_PATHS", ("/fake/ffmpeg-full/bin/ffmpeg",))
+    monkeypatch.setattr("burn.Path.exists", lambda self: str(self) == "/fake/ffmpeg-full/bin/ffmpeg")
+
+    assert subtitle_capable_ffmpeg_binary() == "/fake/ffmpeg-full/bin/ffmpeg"
+
+
+def test_require_subtitles_filter_rejects_ffmpeg_without_subtitles_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("burn.subtitle_capable_ffmpeg_binary", lambda: (_ for _ in ()).throw(RuntimeError("subtitles")))
 
     with pytest.raises(RuntimeError, match="subtitles"):
         require_subtitles_filter()

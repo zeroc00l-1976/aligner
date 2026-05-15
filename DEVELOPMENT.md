@@ -44,8 +44,17 @@ open-caption burning on macOS, install `ffmpeg-full`:
 brew install ffmpeg-full
 ```
 
-Because `ffmpeg-full` is keg-only, either add it to `PATH` before the regular
-ffmpeg:
+Because `ffmpeg-full` is keg-only, it is not linked over the regular `ffmpeg`.
+`burn-subtitles` handles the common macOS case automatically by checking these
+paths when regular `ffmpeg` lacks the `subtitles` filter:
+
+```text
+/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
+/usr/local/opt/ffmpeg-full/bin/ffmpeg
+```
+
+For custom installs, either add the subtitle-capable ffmpeg to `PATH` before the
+regular ffmpeg:
 
 ```sh
 export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"
@@ -57,7 +66,8 @@ or set `ALIGNER_FFMPEG` when running a command:
 ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles input.mp4 captions.srt output.mp4
 ```
 
-Both `align.py` and `burn.py` respect `ALIGNER_FFMPEG`.
+Both `align.py` and `burn.py` respect `ALIGNER_FFMPEG`; `burn.py` also performs
+the automatic `ffmpeg-full` fallback above.
 
 `aeneas` needs `numpy` available while it builds, so `pyproject.toml` includes a
 `tool.uv.extra-build-dependencies` entry for it. Keep that setting unless the
@@ -147,7 +157,8 @@ Current coverage includes:
 ## Open Caption Flow
 
 1. Pass an input video, `.srt` file, and output video path to `burn-subtitles`.
-2. Check that ffmpeg is installed and exposes the `subtitles` filter.
+2. Find an ffmpeg binary with the `subtitles` filter: `ALIGNER_FFMPEG`, then
+   regular `ffmpeg`, then common Homebrew `ffmpeg-full` paths.
 3. Refuse to overwrite the output unless `--force` is passed.
 4. Run ffmpeg with the subtitles filter and copy the audio stream.
 
