@@ -120,6 +120,10 @@ The script processes every top-level `.wav` and `.mp3` file in the input
 directory. If an audio file does not have a matching `.txt` transcript, it is
 skipped and the script continues with the next file.
 
+For batch runs, `aligner` prints file-level progress after each audio file. A
+single long file can still take a while because aeneas does not expose detailed
+in-file progress.
+
 Existing output files are not overwritten unless you pass `--force`:
 
 ```sh
@@ -189,7 +193,8 @@ uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4
 ```
 
 This creates a new video file with the captions rendered into the image. The
-original audio stream is copied when possible.
+original audio stream is copied when possible. Burning captions re-encodes the
+video stream, so the helper shows a progress bar while ffmpeg runs.
 
 Existing output videos are not overwritten unless you pass `--force`:
 
@@ -211,6 +216,18 @@ To use ffmpeg's default subtitle styling:
 uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --no-style
 ```
 
+The default video encoding settings are `libx264`, CRF `23`, and preset
+`medium`. CRF controls quality and size: lower values are larger and higher
+quality; higher values are smaller and lower quality.
+
+Examples:
+
+```sh
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --crf 28
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --crf 20 --preset slow
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --no-progress
+```
+
 ## Tests
 
 Run the test suite with:
@@ -221,7 +238,8 @@ uv run pytest
 
 The current tests cover fast behavior that does not need a real audio alignment
 run: timestamp formatting, JSON-to-SRT/VTT conversion, audio file discovery,
-overwrite handling, burn command construction, and CLI validation.
+overwrite handling, burn command construction/progress helpers, and CLI
+validation.
 
 ## Current Limitations
 

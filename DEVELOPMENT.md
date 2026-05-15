@@ -139,6 +139,8 @@ Current coverage includes:
   `subtitles` filter.
 - `build_ffmpeg_command(...)`: builds the ffmpeg command for open captions.
 - `burn_subtitles(...)`: validates paths and runs ffmpeg.
+- `progress_bar(...)`: renders simple terminal progress from ffmpeg progress
+  events.
 - `cli()`: parses CLI arguments for the `burn-subtitles` command.
 
 ## Runtime Flow
@@ -160,7 +162,9 @@ Current coverage includes:
 2. Find an ffmpeg binary with the `subtitles` filter: `ALIGNER_FFMPEG`, then
    regular `ffmpeg`, then common Homebrew `ffmpeg-full` paths.
 3. Refuse to overwrite the output unless `--force` is passed.
-4. Run ffmpeg with the subtitles filter and copy the audio stream.
+4. Run ffmpeg with the subtitles filter, explicit x264 settings, copied audio,
+   and `-progress pipe:1`.
+5. Parse ffmpeg progress events and update a terminal progress bar.
 
 ## Known Issues And Risks
 
@@ -173,6 +177,9 @@ Current coverage includes:
   and CLI validation, but not full aeneas alignment.
 - **ffmpeg subtitle support varies:** open-caption burning requires an ffmpeg
   build with the `subtitles` filter, which is not present in every install.
+- **Aligner progress is file-level:** aeneas does not expose fine-grained
+  per-file alignment progress, so `aligner` reports batch progress after each
+  file rather than percentage inside one long file.
 
 ## Suggested Next Pass
 

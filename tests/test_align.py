@@ -12,6 +12,7 @@ from align import (
     json_to_srt,
     json_to_vtt,
     output_paths,
+    progress_bar,
     selected_file_pair,
     seconds_to_srt_time,
     seconds_to_vtt_time,
@@ -73,6 +74,11 @@ def test_ffmpeg_binary_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("ALIGNER_FFMPEG", "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
 
     assert ffmpeg_binary() == "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
+
+
+def test_progress_bar_renders_completion() -> None:
+    assert progress_bar(5, 10, width=10) == "[#####.....]"
+    assert progress_bar(10, 10, width=10) == "[##########]"
 
 
 def test_json_to_srt_skips_empty_fragments(tmp_path: Path) -> None:

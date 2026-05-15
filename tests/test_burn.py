@@ -8,6 +8,10 @@ from burn import (
     ensure_output_writable,
     escape_filter_value,
     ffmpeg_has_subtitles_filter,
+    format_duration,
+    parse_ffmpeg_time,
+    progress_bar,
+    probe_duration,
     require_subtitles_filter,
     subtitles_filter,
     subtitle_capable_ffmpeg_binary,
@@ -52,6 +56,22 @@ def test_ensure_output_writable_allows_existing_output_with_force(tmp_path: Path
     ensure_output_writable(output_path, overwrite=True)
 
 
+def test_format_duration_rounds_to_readable_time() -> None:
+    assert format_duration(3.2) == "0:03"
+    assert format_duration(65.7) == "1:06"
+    assert format_duration(3661) == "1:01:01"
+
+
+def test_progress_bar_renders_known_and_unknown_progress() -> None:
+    assert progress_bar(5, 10, width=10) == "[#####.....]"
+    assert progress_bar(0, 0, width=5) == "[?????]"
+
+
+def test_parse_ffmpeg_time() -> None:
+    assert parse_ffmpeg_time("01:02:03.500000") == 3723.5
+    assert parse_ffmpeg_time("not-time") is None
+
+
 def test_build_ffmpeg_command_uses_subtitles_filter_and_copies_audio(tmp_path: Path) -> None:
     video_path = tmp_path / "input.mp4"
     subtitle_path = tmp_path / "captions.srt"
@@ -59,10 +79,15 @@ def test_build_ffmpeg_command_uses_subtitles_filter_and_copies_audio(tmp_path: P
 
     cmd = build_ffmpeg_command(video_path, subtitle_path, output_path, overwrite=False, style=None)
 
-    assert cmd[:4] == ["ffmpeg", "-n", "-i", str(video_path)]
+    assert cmd[0] == "ffmpeg"
+    assert "-n" in cmd
+    assert cmd[cmd.index("-i") + 1] == str(video_path)
     assert "-vf" in cmd
     assert f"subtitles=filename='{subtitle_path.resolve()}'" in cmd
-    assert cmd[-3:] == ["-c:a", "copy", str(output_path)]
+    assert cmd[cmd.index("-c:v") + 1] == "libx264"
+    assert cmd[cmd.index("-crf") + 1] == "23"
+    assert cmd[cmd.index("-c:a") + 1] == "copy"
+    assert cmd[-1] == str(output_path)
 
 
 def test_build_ffmpeg_command_uses_configured_ffmpeg_binary(
@@ -101,6 +126,17 @@ def test_ffmpeg_has_subtitles_filter_rejects_missing_filter(monkeypatch: pytest.
     monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
 
     assert ffmpeg_has_subtitles_filter("/custom/ffmpeg") is False
+
+
+def test_probe_duration_reads_ffprobe_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Proc:
+        returncode = 0
+        stdout = "12.5\n"
+        stderr = ""
+
+    monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
+
+    assert probe_duration(tmp_path / "input.mp4", "/custom/ffmpeg") == 12.5
 
 
 def test_subtitle_capable_ffmpeg_prefers_env_binary(monkeypatch: pytest.MonkeyPatch) -> None:

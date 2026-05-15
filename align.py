@@ -13,10 +13,24 @@ TIME_PRECISION = 1000
 AUDIO_EXTENSIONS = {".wav", ".mp3"}
 OUTPUT_EXTENSIONS = (".json", ".srt", ".vtt")
 FFMPEG_ENV_VAR = "ALIGNER_FFMPEG"
+PROGRESS_BAR_WIDTH = 30
 
 
 def ffmpeg_binary() -> str:
     return os.environ.get(FFMPEG_ENV_VAR, "ffmpeg")
+
+
+def progress_bar(current: int, total: int, width: int = PROGRESS_BAR_WIDTH) -> str:
+    if total <= 0:
+        return f"[{'?' * width}]"
+    ratio = min(1.0, max(0.0, current / total))
+    filled = int(width * ratio)
+    return f"[{'#' * filled}{'.' * (width - filled)}]"
+
+
+def print_batch_progress(current: int, total: int) -> None:
+    percent = 100.0 if total <= 0 else (min(total, current) / total) * 100
+    print(f"      Batch progress {progress_bar(current, total)} {current}/{total} ({percent:5.1f}%)")
 
 
 def seconds_to_srt_time(t: float) -> str:
@@ -255,6 +269,7 @@ def cli(argv: list[str] | None = None) -> int:
                 print(f"      Audio:      {display_path(audio)}")
                 print(f"      Transcript: {display_path(transcript)}")
                 print(f"      Language:   {args.language}")
+                print("      This can take a while for long audio files.")
                 align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
                 return 0
 
@@ -275,12 +290,14 @@ def cli(argv: list[str] | None = None) -> int:
 
                 if not transcript.exists():
                     print(f"[{i}/{total}] Skipping, transcript missing for {audio.name}: expected {transcript.name}")
+                    print_batch_progress(i, total)
                     continue
 
                 print(f"[{i}/{total}] Running aeneas alignment")
                 print(f"      Audio:      {display_path(audio)}")
                 print(f"      Transcript: {display_path(transcript)}")
                 print(f"      Language:   {args.language}")
+                print("      This can take a while for long audio files.")
 
                 try:
                     align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
@@ -289,6 +306,7 @@ def cli(argv: list[str] | None = None) -> int:
                 except (FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
                     failures += 1
                     print(f"      ERROR: {e}\n", file=sys.stderr)
+                print_batch_progress(i, total)
 
             if failures:
                 print(f"Completed with {failures} failed file(s).", file=sys.stderr)
