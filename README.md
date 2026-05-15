@@ -196,6 +196,11 @@ This creates a new video file with the captions rendered into the image. The
 original audio stream is copied when possible. Burning captions re-encodes the
 video stream, so the helper shows a progress bar while ffmpeg runs.
 
+Before encoding starts, the helper reads and prints the source video specs
+using `ffprobe`: resolution, frame rate, codec, pixel format, and bitrate. The
+output keeps the source resolution and frame rate by default; the video codec,
+quality, and compression speed are controlled by the switches below.
+
 Existing output videos are not overwritten unless you pass `--force`:
 
 ```sh
@@ -218,7 +223,9 @@ uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 
 
 The default video encoding settings are `libx264`, CRF `23`, and preset
 `medium`. CRF controls quality and size: lower values are larger and higher
-quality; higher values are smaller and lower quality.
+quality; higher values are smaller and lower quality. Matching the source
+bitrate automatically is usually not ideal because burning captions requires a
+new encode and source bitrate does not always map cleanly to output quality.
 
 Examples:
 

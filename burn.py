@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -74,6 +75,46 @@ def parse_ffmpeg_time(value: str) -> float | None:
     return (hours * 3600) + (minutes * 60) + seconds
 
 
+def parse_rate(value: str | None) -> float | None:
+    if not value or value == "0/0":
+        return None
+    if "/" not in value:
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    numerator, denominator = value.split("/", 1)
+    try:
+        denominator_float = float(denominator)
+        if denominator_float == 0:
+            return None
+        return float(numerator) / denominator_float
+    except ValueError:
+        return None
+
+
+def format_rate(rate: float | None) -> str:
+    if rate is None:
+        return "unknown fps"
+    if rate.is_integer():
+        return f"{int(rate)} fps"
+    return f"{rate:.2f} fps"
+
+
+def format_bitrate(bit_rate: str | None) -> str:
+    if not bit_rate:
+        return "unknown bitrate"
+    try:
+        bits = int(bit_rate)
+    except ValueError:
+        return "unknown bitrate"
+    if bits >= 1_000_000:
+        return f"{bits / 1_000_000:.1f} Mbps"
+    if bits >= 1_000:
+        return f"{bits / 1_000:.0f} kbps"
+    return f"{bits} bps"
+
+
 def ffmpeg_has_subtitles_filter(binary: str) -> bool:
     proc = subprocess.run([binary, "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     filters = f"{proc.stdout}\n{proc.stderr}"
@@ -110,6 +151,58 @@ def ffprobe_binary_for(ffmpeg_path: str) -> str:
     if candidate.exists():
         return str(candidate)
     return "ffprobe"
+
+
+def probe_video_info(video_path: Path, ffmpeg_path: str) -> dict[str, str | int | float | None]:
+    ffprobe = ffprobe_binary_for(ffmpeg_path)
+    proc = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height,avg_frame_rate,bit_rate,pix_fmt",
+            "-show_entries",
+            "format=duration,bit_rate",
+            "-of",
+            "json",
+            str(video_path),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return {}
+
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {}
+
+    streams = data.get("streams") or []
+    stream = streams[0] if streams else {}
+    fmt = data.get("format") or {}
+    return {
+        "codec": stream.get("codec_name"),
+        "width": stream.get("width"),
+        "height": stream.get("height"),
+        "fps": parse_rate(stream.get("avg_frame_rate")),
+        "pix_fmt": stream.get("pix_fmt"),
+        "bitrate": stream.get("bit_rate") or fmt.get("bit_rate"),
+        "duration": fmt.get("duration"),
+    }
+
+
+def describe_video_info(info: dict[str, str | int | float | None]) -> str:
+    width = info.get("width")
+    height = info.get("height")
+    size = f"{width}x{height}" if width and height else "unknown size"
+    codec = info.get("codec") or "unknown codec"
+    pix_fmt = info.get("pix_fmt") or "unknown pixel format"
+    return f"{size}, {format_rate(info.get('fps'))}, {codec}, {pix_fmt}, {format_bitrate(info.get('bitrate'))}"
 
 
 def probe_duration(video_path: Path, ffmpeg_path: str) -> float | None:
@@ -202,6 +295,7 @@ def burn_subtitles(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     ensure_output_writable(output_path, overwrite=overwrite)
     duration = probe_duration(video_path, ffmpeg_path)
+    video_info = probe_video_info(video_path, ffmpeg_path)
 
     cmd = build_ffmpeg_command(
         video_path,
@@ -218,6 +312,9 @@ def burn_subtitles(
     current_time = 0.0
 
     if show_progress:
+        if video_info:
+            print(f"Source video: {describe_video_info(video_info)}")
+            print("Output keeps source resolution and frame rate unless ffmpeg requires a compatibility conversion.")
         print(f"Burning captions with {Path(ffmpeg_path).name} ({video_codec}, CRF {crf}, preset {preset})")
 
     assert proc.stdout is not None

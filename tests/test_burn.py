@@ -8,10 +8,15 @@ from burn import (
     ensure_output_writable,
     escape_filter_value,
     ffmpeg_has_subtitles_filter,
+    format_bitrate,
     format_duration,
+    format_rate,
+    describe_video_info,
+    parse_rate,
     parse_ffmpeg_time,
     progress_bar,
     probe_duration,
+    probe_video_info,
     require_subtitles_filter,
     subtitles_filter,
     subtitle_capable_ffmpeg_binary,
@@ -70,6 +75,34 @@ def test_progress_bar_renders_known_and_unknown_progress() -> None:
 def test_parse_ffmpeg_time() -> None:
     assert parse_ffmpeg_time("01:02:03.500000") == 3723.5
     assert parse_ffmpeg_time("not-time") is None
+
+
+def test_parse_and_format_rate() -> None:
+    assert parse_rate("30000/1001") == pytest.approx(29.97002997)
+    assert parse_rate("24/1") == 24
+    assert parse_rate("0/0") is None
+    assert format_rate(24.0) == "24 fps"
+    assert format_rate(29.97002997) == "29.97 fps"
+    assert format_rate(None) == "unknown fps"
+
+
+def test_format_bitrate() -> None:
+    assert format_bitrate("4500000") == "4.5 Mbps"
+    assert format_bitrate("128000") == "128 kbps"
+    assert format_bitrate(None) == "unknown bitrate"
+
+
+def test_describe_video_info() -> None:
+    assert describe_video_info(
+        {
+            "codec": "h264",
+            "width": 1920,
+            "height": 1080,
+            "fps": 29.97002997,
+            "pix_fmt": "yuv420p",
+            "bitrate": "4500000",
+        }
+    ) == "1920x1080, 29.97 fps, h264, yuv420p, 4.5 Mbps"
 
 
 def test_build_ffmpeg_command_uses_subtitles_filter_and_copies_audio(tmp_path: Path) -> None:
@@ -137,6 +170,27 @@ def test_probe_duration_reads_ffprobe_output(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
 
     assert probe_duration(tmp_path / "input.mp4", "/custom/ffmpeg") == 12.5
+
+
+def test_probe_video_info_reads_first_video_stream(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Proc:
+        returncode = 0
+        stdout = (
+            '{"streams":[{"codec_name":"h264","width":1920,"height":1080,'
+            '"avg_frame_rate":"30000/1001","pix_fmt":"yuv420p"}],'
+            '"format":{"duration":"10.0","bit_rate":"4500000"}}'
+        )
+        stderr = ""
+
+    monkeypatch.setattr("burn.subprocess.run", lambda *args, **kwargs: Proc())
+
+    info = probe_video_info(tmp_path / "input.mp4", "/custom/ffmpeg")
+
+    assert info["codec"] == "h264"
+    assert info["width"] == 1920
+    assert info["height"] == 1080
+    assert info["fps"] == pytest.approx(29.97002997)
+    assert info["bitrate"] == "4500000"
 
 
 def test_subtitle_capable_ffmpeg_prefers_env_binary(monkeypatch: pytest.MonkeyPatch) -> None:

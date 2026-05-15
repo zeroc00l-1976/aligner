@@ -139,6 +139,7 @@ Current coverage includes:
   `subtitles` filter.
 - `build_ffmpeg_command(...)`: builds the ffmpeg command for open captions.
 - `burn_subtitles(...)`: validates paths and runs ffmpeg.
+- `probe_video_info(...)`: reads source video specs for user-facing context.
 - `progress_bar(...)`: renders simple terminal progress from ffmpeg progress
   events.
 - `cli()`: parses CLI arguments for the `burn-subtitles` command.
@@ -161,10 +162,11 @@ Current coverage includes:
 1. Pass an input video, `.srt` file, and output video path to `burn-subtitles`.
 2. Find an ffmpeg binary with the `subtitles` filter: `ALIGNER_FFMPEG`, then
    regular `ffmpeg`, then common Homebrew `ffmpeg-full` paths.
-3. Refuse to overwrite the output unless `--force` is passed.
-4. Run ffmpeg with the subtitles filter, explicit x264 settings, copied audio,
+3. Probe source video specs and print them before encoding.
+4. Refuse to overwrite the output unless `--force` is passed.
+5. Run ffmpeg with the subtitles filter, explicit x264 settings, copied audio,
    and `-progress pipe:1`.
-5. Parse ffmpeg progress events and update a terminal progress bar.
+6. Parse ffmpeg progress events and update a terminal progress bar.
 
 ## Known Issues And Risks
 
