@@ -1,0 +1,23 @@
+[project]
+name = "aligner"
+version = "0.1.0"
+description = "Forced-align audio and transcript files into JSON, SRT, and WebVTT outputs."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "aeneas==1.7.3.0",
+    "numpy==1.23.5",
+]
+
+[project.scripts]
+aligner = "align:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["align"]
+
+[tool.uv.extra-build-dependencies]
+aeneas = ["numpy==1.23.5"]
