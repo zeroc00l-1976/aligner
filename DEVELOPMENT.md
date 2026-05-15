@@ -125,8 +125,10 @@ Current coverage includes:
   and runs aeneas, then writes the JSON sync map.
 - `read_fragments(json_path)`: reads and validates the aeneas fragment list.
 - `fragment_text(fragment)`: joins non-empty text lines in a fragment.
-- `caption_cues_for_fragment(...)`: splits long aeneas fragments into readable
-  subtitle-sized cues and distributes timing across the original fragment.
+- `prepare_transcript_for_alignment(...)`: writes a temporary caption-sized
+  transcript for aeneas so alignment happens against short chunks.
+- `caption_cues_for_fragment(...)`: fallback splitter for any long aeneas
+  fragments that remain after pre-splitting.
 - `json_to_srt(json_path, srt_path)`: converts aeneas JSON fragments to SRT.
 - `json_to_vtt(json_path, vtt_path)`: converts aeneas JSON fragments to WebVTT.
 - `find_audio_files(input_dir)`: returns sorted top-level `.wav` and `.mp3`
@@ -154,11 +156,13 @@ Current coverage includes:
    folder.
 4. In batch mode, find top-level `.wav` and `.mp3` files in the input directory.
 5. For each audio file, look for a same-stem `.txt` transcript.
-6. Refuse to overwrite existing outputs unless `--force` is passed.
-7. Convert non-WAV audio to temporary WAV.
-8. Run aeneas and write JSON.
-9. Convert JSON to SRT and VTT, splitting long fragments into shorter caption
-   cues with `--max-caption-chars` and `--max-caption-duration`.
+6. Pre-split the transcript into caption-sized lines unless `--no-pre-split` is
+   passed.
+7. Refuse to overwrite existing outputs unless `--force` is passed.
+8. Convert non-WAV audio to temporary WAV.
+9. Run aeneas against the caption-sized transcript and write JSON.
+10. Convert JSON to SRT and VTT, with a proportional fallback split for any
+   remaining long fragments.
 
 ## Open Caption Flow
 
@@ -182,9 +186,9 @@ Current coverage includes:
 - **No recursive processing:** nested input directories are ignored.
 - **Basic test coverage only:** tests cover pure formatting/conversion behavior
   and CLI validation, but not full aeneas alignment.
-- **Estimated intra-fragment cue timing:** SRT/VTT cue splits use proportional
-  timing inside each aeneas fragment. This improves readability but is not the
-  same as true word-level alignment.
+- **Estimated fallback timing:** pre-splitting should make most aeneas fragments
+  subtitle-sized, but any remaining long fragment is split proportionally. This
+  is a fallback, not true word-level alignment.
 - **ffmpeg subtitle support varies:** open-caption burning requires an ffmpeg
   build with the `subtitles` filter, which is not present in every install.
 - **Aligner progress is file-level:** aeneas does not expose fine-grained

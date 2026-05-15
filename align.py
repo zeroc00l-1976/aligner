@@ -254,6 +254,29 @@ def caption_cues_for_fragment(
     return cues
 
 
+def transcript_caption_lines(transcript_path: Path, max_chars: int = DEFAULT_MAX_CAPTION_CHARS) -> list[str]:
+    raw_text = transcript_path.read_text(encoding="utf-8")
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", raw_text) if paragraph.strip()]
+    lines: list[str] = []
+    for paragraph in paragraphs:
+        lines.extend(split_text_for_captions(paragraph, max_chars=max_chars))
+    return lines
+
+
+def prepare_transcript_for_alignment(
+    transcript_path: Path,
+    tmp_dir: Path,
+    max_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+) -> tuple[Path, int]:
+    lines = transcript_caption_lines(transcript_path, max_chars=max_chars)
+    if not lines:
+        raise ValueError(f"Transcript contains no usable text: {transcript_path}")
+
+    prepared_path = tmp_dir / f"{transcript_path.stem}.caption_chunks.txt"
+    prepared_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return prepared_path, len(lines)
+
+
 def read_fragments(json_path: Path) -> list[dict[str, Any]]:
     data = json.loads(json_path.read_text(encoding="utf-8"))
     fragments = data.get("fragments", [])
@@ -344,6 +367,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_MAX_CAPTION_DURATION,
         help=f"Maximum seconds per generated subtitle cue, default: {DEFAULT_MAX_CAPTION_DURATION:g}",
     )
+    parser.add_argument(
+        "--no-pre-split",
+        action="store_true",
+        help="Align against the original transcript text instead of pre-splitting it into caption chunks",
+    )
     return parser.parse_args(argv)
 
 
@@ -356,6 +384,7 @@ def align_file_pair(
     overwrite: bool,
     max_caption_chars: int = DEFAULT_MAX_CAPTION_CHARS,
     max_caption_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+    pre_split_transcript: bool = True,
 ) -> None:
     if audio.suffix.lower() not in AUDIO_EXTENSIONS:
         raise ValueError(f"Unsupported audio file extension for {audio.name}; expected .wav or .mp3")
@@ -367,7 +396,16 @@ def align_file_pair(
     if audio.suffix.lower() != ".wav":
         audio_for_aeneas = convert_to_wav(audio, tmp_dir)
 
-    json_path = run_alignment(audio_for_aeneas, transcript, output_dir, language=language)
+    transcript_for_aeneas = transcript
+    if pre_split_transcript:
+        transcript_for_aeneas, prepared_line_count = prepare_transcript_for_alignment(
+            transcript,
+            tmp_dir,
+            max_chars=max_caption_chars,
+        )
+        print(f"      Prepared transcript: {prepared_line_count} caption-sized lines")
+
+    json_path = run_alignment(audio_for_aeneas, transcript_for_aeneas, output_dir, language=language)
 
     if json_path.name != final_json.name:
         final_json.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -413,6 +451,7 @@ def cli(argv: list[str] | None = None) -> int:
                     overwrite=args.force,
                     max_caption_chars=args.max_caption_chars,
                     max_caption_duration=args.max_caption_duration,
+                    pre_split_transcript=not args.no_pre_split,
                 )
                 return 0
 
@@ -452,6 +491,7 @@ def cli(argv: list[str] | None = None) -> int:
                         overwrite=args.force,
                         max_caption_chars=args.max_caption_chars,
                         max_caption_duration=args.max_caption_duration,
+                        pre_split_transcript=not args.no_pre_split,
                     )
                 except FileExistsError as e:
                     print(f"      Skipping: {e}\n")

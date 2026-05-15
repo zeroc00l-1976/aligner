@@ -14,10 +14,12 @@ from align import (
     json_to_srt,
     json_to_vtt,
     output_paths,
+    prepare_transcript_for_alignment,
     progress_bar,
     selected_file_pair,
     seconds_to_srt_time,
     seconds_to_vtt_time,
+    transcript_caption_lines,
     split_text_for_captions,
 )
 
@@ -101,6 +103,30 @@ def test_caption_cues_for_fragment_splits_and_distributes_time() -> None:
     assert len(cues) == 2
     assert cues[0] == (10.0, 15.0, "one two three four")
     assert cues[1] == (15.0, 20.0, "five six seven eight")
+
+
+def test_transcript_caption_lines_splits_paragraphs(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text(
+        "MS BRUCE: This is the first sentence. This is another sentence.\n\nQUESTION: Short one.",
+        encoding="utf-8",
+    )
+
+    assert transcript_caption_lines(transcript, max_chars=42) == [
+        "MS BRUCE: This is the first sentence.",
+        "This is another sentence.",
+        "QUESTION: Short one.",
+    ]
+
+
+def test_prepare_transcript_for_alignment_writes_caption_chunks(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.txt"
+    transcript.write_text("One two three four five six.", encoding="utf-8")
+
+    prepared_path, line_count = prepare_transcript_for_alignment(transcript, tmp_path, max_chars=12)
+
+    assert line_count == 3
+    assert prepared_path.read_text(encoding="utf-8") == "One two\nthree four\nfive six.\n"
 
 
 def test_ffmpeg_binary_defaults_to_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
