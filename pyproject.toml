@@ -13,6 +13,7 @@ dependencies = [
 aligner = "align:main"
 burn-subtitles = "burn:main"
 check-transcript = "qa:main"
+retime-transcript = "qa:retime_main"
 
 [build-system]
 requires = ["setuptools>=64"]

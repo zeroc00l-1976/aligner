@@ -80,6 +80,7 @@ The project installs two console commands:
 uv run aligner
 uv run burn-subtitles
 uv run --group qa check-transcript
+uv run --group qa retime-transcript
 ```
 
 ## Test Suite
@@ -156,6 +157,11 @@ Current coverage includes:
 
 - `transcribe_audio(...)`: runs faster-whisper and returns timestamped ASR
   segments.
+- `transcribe_words(...)`: runs faster-whisper with word timestamps for retiming.
+- `retime_official_transcript(...)`: maps official transcript words onto ASR
+  word timings and produces official-text captions.
+- `timing_report(...)`: summarizes matched versus estimated word timings and
+  weak spans.
 - `compare_asr_to_official(...)`: compares ASR segments with nearby official
   transcript chunks and records low-score mismatches.
 - `write_asr_srt(...)`: writes the raw ASR timing output for human review.
@@ -190,9 +196,30 @@ Current coverage includes:
    and `-progress pipe:1`.
 7. Parse ffmpeg progress events and update a terminal progress bar.
 
-## Transcript QA Flow
+## Retiming And QA Flow
 
-`check-transcript` is a QA layer, not a transcript replacement.
+`retime-transcript` is the preferred high-accuracy caption path when timing must
+follow the audio closely while text must remain official.
+
+1. Load faster-whisper from the optional `qa` dependency group.
+2. Transcribe the audio/video with word timestamps.
+3. Tokenize the official transcript.
+4. Match ASR words to official words.
+5. Transfer ASR word timestamps onto matching official words.
+6. Estimate timing for official-only words between matched anchors.
+7. Write official-text SRT/VTT captions.
+8. Write a timing QA report with weak spans and matched-word ratio.
+
+Run it with:
+
+```sh
+uv run --group qa retime-transcript audio.mp3 transcript.txt \
+  --srt aligned/audio.srt \
+  --vtt aligned/audio.vtt \
+  --report aligned/audio.timing-report.json
+```
+
+`check-transcript` remains available as a comparison-only QA layer.
 
 1. Load faster-whisper from the optional `qa` dependency group.
 2. Transcribe the audio/video into timestamped ASR segments.
@@ -227,6 +254,8 @@ uv run --group qa check-transcript audio.mp3 transcript.txt \
   build with the `subtitles` filter, which is not present in every install.
 - **ASR QA is advisory:** faster-whisper can flag likely transcript/audio
   mismatches, but the official transcript remains the source of truth.
+- **Retimed captions still need review:** matched ASR words provide the best
+  timing anchors; estimated weak spans are called out in the timing report.
 - **Aligner progress is file-level:** aeneas does not expose fine-grained
   per-file alignment progress, so `aligner` reports batch progress after each
   file rather than percentage inside one long file.
@@ -246,6 +275,7 @@ uv sync
 uv run aligner --help
 uv run burn-subtitles --help
 uv run --group qa check-transcript --help
+uv run --group qa retime-transcript --help
 uv run pytest
 ffmpeg -version
 /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles

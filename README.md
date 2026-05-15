@@ -244,10 +244,36 @@ uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality high
 
 ## Transcript QA
 
-When caption timing or text looks suspicious, run an optional ASR comparison
-pass. This uses faster-whisper to transcribe the audio as a second opinion, then
-compares the ASR text against the official transcript. It does not replace the
-official transcript; it flags spots that need review.
+For the most time-accurate captions, use ASR word timing as the timing scaffold
+while keeping the official transcript as the caption text:
+
+```sh
+uv run --group qa retime-transcript convert/interview.mp3 convert/interview.txt \
+  --srt aligned/interview.srt \
+  --vtt aligned/interview.vtt \
+  --report aligned/interview.timing-report.json
+```
+
+This command:
+
+- transcribes the audio with faster-whisper word timestamps,
+- maps official transcript words onto the ASR word timings,
+- writes official-text SRT/VTT captions,
+- writes a timing QA report for weak or estimated regions.
+
+Use a larger model when accuracy matters more than speed:
+
+```sh
+uv run --group qa retime-transcript convert/interview.mp3 convert/interview.txt \
+  --srt aligned/interview.srt \
+  --model small.en
+```
+
+The original comparison-only QA command is still available when you want a
+diagnostic report without writing retimed captions. It uses faster-whisper to
+transcribe the audio as a second opinion, then compares the ASR text against the
+official transcript. It does not replace the official transcript; it flags spots
+that need review.
 
 Run it with the `qa` dependency group:
 
