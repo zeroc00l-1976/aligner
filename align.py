@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,9 @@ AUDIO_EXTENSIONS = {".wav", ".mp3"}
 OUTPUT_EXTENSIONS = (".json", ".srt", ".vtt")
 FFMPEG_ENV_VAR = "ALIGNER_FFMPEG"
 PROGRESS_BAR_WIDTH = 30
+DEFAULT_MAX_CAPTION_CHARS = 84
+DEFAULT_MAX_CAPTION_DURATION = 6.0
+MIN_CAPTION_DURATION = 0.5
 
 
 def ffmpeg_binary() -> str:
@@ -143,6 +147,113 @@ def fragment_text(fragment: dict[str, Any]) -> str:
     return " ".join(line.strip() for line in fragment.get("lines", []) if line.strip())
 
 
+def split_text_for_captions(text: str, max_chars: int = DEFAULT_MAX_CAPTION_CHARS) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return []
+    if max_chars <= 0 or len(normalized) <= max_chars:
+        return [normalized]
+
+    chunks: list[str] = []
+    current_words: list[str] = []
+    sentence_end_re = re.compile(r"[.!?][\"')\]]?$")
+
+    for word in normalized.split():
+        candidate_words = [*current_words, word]
+        candidate = " ".join(candidate_words)
+
+        if current_words and len(candidate) > max_chars:
+            chunks.append(" ".join(current_words))
+            current_words = [word]
+            continue
+
+        current_words = candidate_words
+        if len(candidate) >= max_chars * 0.6 and sentence_end_re.search(word):
+            chunks.append(candidate)
+            current_words = []
+
+    if current_words:
+        chunks.append(" ".join(current_words))
+
+    return chunks
+
+
+def split_text_into_count(text: str, count: int) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    words = normalized.split()
+    if not words or count <= 1:
+        return [normalized] if normalized else []
+
+    count = min(count, len(words))
+    chunks: list[str] = []
+    start = 0
+    for index in range(count):
+        remaining_words = len(words) - start
+        remaining_chunks = count - index
+        size = max(1, round(remaining_words / remaining_chunks))
+        chunks.append(" ".join(words[start : start + size]))
+        start += size
+    return [chunk for chunk in chunks if chunk]
+
+
+def caption_chunks_for_text(
+    text: str,
+    duration: float,
+    max_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+    max_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+) -> list[str]:
+    if max_chars <= 0 and max_duration <= 0:
+        return [text] if text else []
+
+    by_text = split_text_for_captions(text, max_chars=max_chars)
+    if not by_text:
+        return []
+
+    if max_duration <= 0:
+        return by_text
+
+    duration_count = max(1, int((duration / max_duration) + 0.999))
+    target_count = max(len(by_text), duration_count)
+    if target_count <= len(by_text):
+        return by_text
+
+    return split_text_into_count(text, target_count)
+
+
+def caption_cues_for_fragment(
+    fragment: dict[str, Any],
+    max_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+    max_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+) -> list[tuple[float, float, str]]:
+    begin = float(fragment["begin"])
+    end = float(fragment["end"])
+    text = fragment_text(fragment)
+    if not text:
+        return []
+
+    duration = max(end - begin, MIN_CAPTION_DURATION)
+    chunks = caption_chunks_for_text(text, duration, max_chars=max_chars, max_duration=max_duration)
+    if not chunks:
+        return []
+
+    total_words = sum(max(1, len(chunk.split())) for chunk in chunks)
+    cues: list[tuple[float, float, str]] = []
+    cursor = begin
+
+    for index, chunk in enumerate(chunks):
+        if index == len(chunks) - 1:
+            cue_end = max(end, cursor + MIN_CAPTION_DURATION)
+        else:
+            word_share = max(1, len(chunk.split())) / total_words
+            cue_end = cursor + (duration * word_share)
+            cue_end = min(cue_end, end)
+            cue_end = max(cue_end, cursor + MIN_CAPTION_DURATION)
+        cues.append((cursor, cue_end, chunk))
+        cursor = cue_end
+
+    return cues
+
+
 def read_fragments(json_path: Path) -> list[dict[str, Any]]:
     data = json.loads(json_path.read_text(encoding="utf-8"))
     fragments = data.get("fragments", [])
@@ -151,35 +262,37 @@ def read_fragments(json_path: Path) -> list[dict[str, Any]]:
     return fragments
 
 
-def json_to_srt(json_path: Path, srt_path: Path) -> None:
+def json_to_srt(
+    json_path: Path,
+    srt_path: Path,
+    max_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+    max_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+) -> None:
     lines = []
     idx = 1
     for frag in read_fragments(json_path):
-        begin = float(frag["begin"])
-        end = float(frag["end"])
-        text = fragment_text(frag)
-        if not text:
-            continue
-        lines.append(str(idx))
-        lines.append(f"{seconds_to_srt_time(begin)} --> {seconds_to_srt_time(end)}")
-        lines.append(text)
-        lines.append("")
-        idx += 1
+        for begin, end, text in caption_cues_for_fragment(frag, max_chars=max_chars, max_duration=max_duration):
+            lines.append(str(idx))
+            lines.append(f"{seconds_to_srt_time(begin)} --> {seconds_to_srt_time(end)}")
+            lines.append(text)
+            lines.append("")
+            idx += 1
 
     srt_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
 
-def json_to_vtt(json_path: Path, vtt_path: Path) -> None:
+def json_to_vtt(
+    json_path: Path,
+    vtt_path: Path,
+    max_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+    max_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+) -> None:
     lines = ["WEBVTT", ""]
     for frag in read_fragments(json_path):
-        begin = float(frag["begin"])
-        end = float(frag["end"])
-        text = fragment_text(frag)
-        if not text:
-            continue
-        lines.append(f"{seconds_to_vtt_time(begin)} --> {seconds_to_vtt_time(end)}")
-        lines.append(text)
-        lines.append("")
+        for begin, end, text in caption_cues_for_fragment(frag, max_chars=max_chars, max_duration=max_duration):
+            lines.append(f"{seconds_to_vtt_time(begin)} --> {seconds_to_vtt_time(end)}")
+            lines.append(text)
+            lines.append("")
 
     vtt_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
@@ -219,10 +332,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output-dir", default="aligned", help="Folder to write outputs (json/srt/vtt)")
     parser.add_argument("--language", default="eng", help="Aeneas language code, default: eng")
     parser.add_argument("--force", action="store_true", help="Overwrite existing output files")
+    parser.add_argument(
+        "--max-caption-chars",
+        type=int,
+        default=DEFAULT_MAX_CAPTION_CHARS,
+        help=f"Maximum characters per generated subtitle cue, default: {DEFAULT_MAX_CAPTION_CHARS}",
+    )
+    parser.add_argument(
+        "--max-caption-duration",
+        type=float,
+        default=DEFAULT_MAX_CAPTION_DURATION,
+        help=f"Maximum seconds per generated subtitle cue, default: {DEFAULT_MAX_CAPTION_DURATION:g}",
+    )
     return parser.parse_args(argv)
 
 
-def align_file_pair(audio: Path, transcript: Path, output_dir: Path, language: str, tmp_dir: Path, overwrite: bool) -> None:
+def align_file_pair(
+    audio: Path,
+    transcript: Path,
+    output_dir: Path,
+    language: str,
+    tmp_dir: Path,
+    overwrite: bool,
+    max_caption_chars: int = DEFAULT_MAX_CAPTION_CHARS,
+    max_caption_duration: float = DEFAULT_MAX_CAPTION_DURATION,
+) -> None:
     if audio.suffix.lower() not in AUDIO_EXTENSIONS:
         raise ValueError(f"Unsupported audio file extension for {audio.name}; expected .wav or .mp3")
 
@@ -239,8 +373,8 @@ def align_file_pair(audio: Path, transcript: Path, output_dir: Path, language: s
         final_json.write_text(json_path.read_text(encoding="utf-8"), encoding="utf-8")
         json_path = final_json
 
-    json_to_srt(json_path, srt_path)
-    json_to_vtt(json_path, vtt_path)
+    json_to_srt(json_path, srt_path, max_chars=max_caption_chars, max_duration=max_caption_duration)
+    json_to_vtt(json_path, vtt_path, max_chars=max_caption_chars, max_duration=max_caption_duration)
 
     print(f"      Wrote: {json_path.name}, {srt_path.name}, {vtt_path.name}\n")
 
@@ -270,7 +404,16 @@ def cli(argv: list[str] | None = None) -> int:
                 print(f"      Transcript: {display_path(transcript)}")
                 print(f"      Language:   {args.language}")
                 print("      This can take a while for long audio files.")
-                align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
+                align_file_pair(
+                    audio,
+                    transcript,
+                    output_dir,
+                    args.language,
+                    tmp_dir,
+                    overwrite=args.force,
+                    max_caption_chars=args.max_caption_chars,
+                    max_caption_duration=args.max_caption_duration,
+                )
                 return 0
 
             input_dir = Path(args.input_dir).expanduser().resolve()
@@ -300,7 +443,16 @@ def cli(argv: list[str] | None = None) -> int:
                 print("      This can take a while for long audio files.")
 
                 try:
-                    align_file_pair(audio, transcript, output_dir, args.language, tmp_dir, overwrite=args.force)
+                    align_file_pair(
+                        audio,
+                        transcript,
+                        output_dir,
+                        args.language,
+                        tmp_dir,
+                        overwrite=args.force,
+                        max_caption_chars=args.max_caption_chars,
+                        max_caption_duration=args.max_caption_duration,
+                    )
                 except FileExistsError as e:
                     print(f"      Skipping: {e}\n")
                 except (FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:

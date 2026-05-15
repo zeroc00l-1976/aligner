@@ -28,6 +28,10 @@ aligned/
   20250805_BPB.vtt
 ```
 
+The raw `.json` keeps the original aeneas alignment fragments. The generated
+`.srt` and `.vtt` files are post-processed into shorter subtitle cues so they
+are easier to read as captions.
+
 ## Requirements
 
 - `uv`
@@ -157,6 +161,12 @@ To set the aeneas language code:
 uv run aligner --language eng
 ```
 
+To tune subtitle cue length:
+
+```sh
+uv run aligner --max-caption-chars 70 --max-caption-duration 4
+```
+
 ## Input Rules
 
 - Audio files must end in `.wav` or `.mp3`.
@@ -165,6 +175,8 @@ uv run aligner --language eng
 - Transcripts are treated as plain text by aeneas.
 - Blank transcript fragments can appear in the JSON output, but are skipped when
   generating SRT and VTT.
+- SRT and VTT output is split into caption-sized cues. Defaults are 84
+  characters and 6 seconds per cue.
 
 Example:
 
@@ -273,6 +285,9 @@ validation.
 - The script only scans the top level of the input directory.
 - Existing output files are skipped unless `--force` is passed.
 - MP3 files are converted to temporary 16 kHz mono WAV files before alignment.
+- Caption cue timing inside long aeneas fragments is estimated proportionally,
+  because the hard transcript alignment does not currently include word-level
+  timings.
 - Tests do not yet cover a full aeneas alignment against a small audio fixture.
 - Burning open captions requires an ffmpeg build with the `subtitles` filter.
 

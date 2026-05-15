@@ -5,6 +5,8 @@ import pytest
 
 from align import (
     cli,
+    caption_chunks_for_text,
+    caption_cues_for_fragment,
     ensure_outputs_writable,
     ffmpeg_binary,
     find_audio_files,
@@ -16,6 +18,7 @@ from align import (
     selected_file_pair,
     seconds_to_srt_time,
     seconds_to_vtt_time,
+    split_text_for_captions,
 )
 
 
@@ -64,6 +67,42 @@ def test_fragment_text_joins_non_empty_lines() -> None:
     assert fragment_text({"lines": [" first ", "", "second "]}) == "first second"
 
 
+def test_split_text_for_captions_prefers_short_chunks() -> None:
+    text = "This is a first sentence. This is a second sentence that should stay readable."
+
+    assert split_text_for_captions(text, max_chars=32) == [
+        "This is a first sentence.",
+        "This is a second sentence that",
+        "should stay readable.",
+    ]
+
+
+def test_caption_chunks_for_text_respects_duration_target() -> None:
+    text = "one two three four five six seven eight nine ten"
+
+    assert caption_chunks_for_text(text, duration=12, max_chars=100, max_duration=4) == [
+        "one two three",
+        "four five six seven",
+        "eight nine ten",
+    ]
+
+
+def test_caption_cues_for_fragment_splits_and_distributes_time() -> None:
+    cues = caption_cues_for_fragment(
+        {
+            "begin": "10.000",
+            "end": "20.000",
+            "lines": ["one two three four five six seven eight"],
+        },
+        max_chars=100,
+        max_duration=5,
+    )
+
+    assert len(cues) == 2
+    assert cues[0] == (10.0, 15.0, "one two three four")
+    assert cues[1] == (15.0, 20.0, "five six seven eight")
+
+
 def test_ffmpeg_binary_defaults_to_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ALIGNER_FFMPEG", raising=False)
 
@@ -86,7 +125,7 @@ def test_json_to_srt_skips_empty_fragments(tmp_path: Path) -> None:
     srt_path = tmp_path / "sample.srt"
     write_sync_map(json_path)
 
-    json_to_srt(json_path, srt_path)
+    json_to_srt(json_path, srt_path, max_chars=100, max_duration=10)
 
     assert srt_path.read_text(encoding="utf-8") == (
         "1\n"
@@ -104,7 +143,7 @@ def test_json_to_vtt_skips_empty_fragments(tmp_path: Path) -> None:
     vtt_path = tmp_path / "sample.vtt"
     write_sync_map(json_path)
 
-    json_to_vtt(json_path, vtt_path)
+    json_to_vtt(json_path, vtt_path, max_chars=100, max_duration=10)
 
     assert vtt_path.read_text(encoding="utf-8") == (
         "WEBVTT\n"

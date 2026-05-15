@@ -125,6 +125,8 @@ Current coverage includes:
   and runs aeneas, then writes the JSON sync map.
 - `read_fragments(json_path)`: reads and validates the aeneas fragment list.
 - `fragment_text(fragment)`: joins non-empty text lines in a fragment.
+- `caption_cues_for_fragment(...)`: splits long aeneas fragments into readable
+  subtitle-sized cues and distributes timing across the original fragment.
 - `json_to_srt(json_path, srt_path)`: converts aeneas JSON fragments to SRT.
 - `json_to_vtt(json_path, vtt_path)`: converts aeneas JSON fragments to WebVTT.
 - `find_audio_files(input_dir)`: returns sorted top-level `.wav` and `.mp3`
@@ -155,7 +157,8 @@ Current coverage includes:
 6. Refuse to overwrite existing outputs unless `--force` is passed.
 7. Convert non-WAV audio to temporary WAV.
 8. Run aeneas and write JSON.
-9. Convert JSON to SRT and VTT.
+9. Convert JSON to SRT and VTT, splitting long fragments into shorter caption
+   cues with `--max-caption-chars` and `--max-caption-duration`.
 
 ## Open Caption Flow
 
@@ -179,6 +182,9 @@ Current coverage includes:
 - **No recursive processing:** nested input directories are ignored.
 - **Basic test coverage only:** tests cover pure formatting/conversion behavior
   and CLI validation, but not full aeneas alignment.
+- **Estimated intra-fragment cue timing:** SRT/VTT cue splits use proportional
+  timing inside each aeneas fragment. This improves readability but is not the
+  same as true word-level alignment.
 - **ffmpeg subtitle support varies:** open-caption burning requires an ffmpeg
   build with the `subtitles` filter, which is not present in every install.
 - **Aligner progress is file-level:** aeneas does not expose fine-grained
@@ -188,8 +194,10 @@ Current coverage includes:
 ## Suggested Next Pass
 
 1. Add an integration fixture for a very short audio/transcript pair.
-2. Consider recursive input processing if real workflows need nested folders.
-3. Consider moving from a single-file module to a package if the code grows.
+2. Consider adding an optional ASR comparison mode for transcript confidence or
+   timing diagnostics.
+3. Consider recursive input processing if real workflows need nested folders.
+4. Consider moving from a single-file module to a package if the code grows.
 
 ## Verification Commands
 
