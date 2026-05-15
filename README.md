@@ -197,9 +197,29 @@ original audio stream is copied when possible. Burning captions re-encodes the
 video stream, so the helper shows a progress bar while ffmpeg runs.
 
 Before encoding starts, the helper reads and prints the source video specs
-using `ffprobe`: resolution, frame rate, codec, pixel format, and bitrate. The
-output keeps the source resolution and frame rate by default; the video codec,
-quality, and compression speed are controlled by the switches below.
+using `ffprobe`: resolution, frame rate, codec, pixel format, and bitrate.
+
+By default, `burn-subtitles` creates a quick review file for checking captions
+and timing:
+
+```text
+quick:  720p max height, ultrafast encode, CRF 30
+medium: source height, medium encode, CRF 23
+high:   source height, slow encode, CRF 18
+```
+
+Use the default for review:
+
+```sh
+uv run burn-subtitles input.mp4 captions.srt review.mp4
+```
+
+Use named profiles when you want a better export:
+
+```sh
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality medium
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality high
+```
 
 Existing output videos are not overwritten unless you pass `--force`:
 
@@ -221,17 +241,17 @@ To use ffmpeg's default subtitle styling:
 uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --no-style
 ```
 
-The default video encoding settings are `libx264`, CRF `23`, and preset
-`medium`. CRF controls quality and size: lower values are larger and higher
-quality; higher values are smaller and lower quality. Matching the source
-bitrate automatically is usually not ideal because burning captions requires a
-new encode and source bitrate does not always map cleanly to output quality.
+The named profiles choose sensible defaults, but you can still override them.
+CRF controls quality and size: lower values are larger and higher quality;
+higher values are smaller and lower quality. Matching the source bitrate
+automatically is usually not ideal because burning captions requires a new
+encode and source bitrate does not always map cleanly to output quality.
 
 Examples:
 
 ```sh
-uv run burn-subtitles input.mp4 captions.srt output.mp4 --crf 28
-uv run burn-subtitles input.mp4 captions.srt output.mp4 --crf 20 --preset slow
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality quick --crf 28
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality medium --height 720
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --no-progress
 ```
 

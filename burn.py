@@ -12,8 +12,12 @@ from align import FFMPEG_ENV_VAR, ffmpeg_binary
 
 DEFAULT_STYLE = "FontName=Arial,FontSize=24,Outline=2,Shadow=1,Alignment=2,MarginV=36"
 DEFAULT_VIDEO_CODEC = "libx264"
-DEFAULT_PRESET = "medium"
-DEFAULT_CRF = 23
+DEFAULT_PROFILE = "quick"
+QUALITY_PROFILES = {
+    "quick": {"crf": 30, "preset": "ultrafast", "height": 720},
+    "medium": {"crf": 23, "preset": "medium", "height": None},
+    "high": {"crf": 18, "preset": "slow", "height": None},
+}
 HOMEBREW_FFMPEG_FULL_PATHS = (
     "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
     "/usr/local/opt/ffmpeg-full/bin/ffmpeg",
@@ -38,6 +42,22 @@ def subtitles_filter(subtitle_path: Path, style: str | None = DEFAULT_STYLE) -> 
     if style:
         filter_value += f":force_style='{escape_filter_value(style)}'"
     return filter_value
+
+
+def profile_settings(profile: str) -> dict[str, int | str | None]:
+    try:
+        return QUALITY_PROFILES[profile].copy()
+    except KeyError as e:
+        profiles = ", ".join(QUALITY_PROFILES)
+        raise ValueError(f"Unknown quality profile '{profile}'. Choose one of: {profiles}") from e
+
+
+def build_video_filter(subtitle_path: Path, style: str | None = DEFAULT_STYLE, height: int | None = None) -> str:
+    filters = []
+    if height:
+        filters.append(f"scale=-2:{height}")
+    filters.append(subtitles_filter(subtitle_path, style=style))
+    return ",".join(filters)
 
 
 def ensure_output_writable(output_path: Path, overwrite: bool) -> None:
@@ -239,8 +259,9 @@ def build_ffmpeg_command(
     style: str | None = DEFAULT_STYLE,
     ffmpeg_path: str | None = None,
     video_codec: str = DEFAULT_VIDEO_CODEC,
-    preset: str = DEFAULT_PRESET,
-    crf: int = DEFAULT_CRF,
+    preset: str = "medium",
+    crf: int = 23,
+    height: int | None = None,
 ) -> list[str]:
     cmd = [ffmpeg_path or ffmpeg_binary()]
     cmd.append("-y" if overwrite else "-n")
@@ -255,7 +276,7 @@ def build_ffmpeg_command(
             "-i",
             str(video_path),
             "-vf",
-            subtitles_filter(subtitle_path, style=style),
+            build_video_filter(subtitle_path, style=style, height=height),
             "-c:v",
             video_codec,
             "-preset",
@@ -277,8 +298,10 @@ def burn_subtitles(
     overwrite: bool = False,
     style: str | None = DEFAULT_STYLE,
     video_codec: str = DEFAULT_VIDEO_CODEC,
-    preset: str = DEFAULT_PRESET,
-    crf: int = DEFAULT_CRF,
+    preset: str = "medium",
+    crf: int = 23,
+    height: int | None = None,
+    profile: str = DEFAULT_PROFILE,
     show_progress: bool = True,
 ) -> None:
     ffmpeg_path = subtitle_capable_ffmpeg_binary()
@@ -307,6 +330,7 @@ def burn_subtitles(
         video_codec=video_codec,
         preset=preset,
         crf=crf,
+        height=height,
     )
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     current_time = 0.0
@@ -314,8 +338,11 @@ def burn_subtitles(
     if show_progress:
         if video_info:
             print(f"Source video: {describe_video_info(video_info)}")
-            print("Output keeps source resolution and frame rate unless ffmpeg requires a compatibility conversion.")
-        print(f"Burning captions with {Path(ffmpeg_path).name} ({video_codec}, CRF {crf}, preset {preset})")
+            if height:
+                print(f"Output uses the {profile} profile and limits height to {height}p for faster review.")
+            else:
+                print("Output keeps source resolution and frame rate unless ffmpeg requires a compatibility conversion.")
+        print(f"Burning captions with {Path(ffmpeg_path).name} ({profile}: {video_codec}, CRF {crf}, preset {preset})")
 
     assert proc.stdout is not None
     for raw_line in proc.stdout:
@@ -360,8 +387,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("subtitles", help="Input .srt subtitle file")
     parser.add_argument("output", help="Output video file")
     parser.add_argument("--force", action="store_true", help="Overwrite the output video if it already exists")
-    parser.add_argument("--crf", type=int, default=DEFAULT_CRF, help="x264 quality value, lower is larger/better, default: 23")
-    parser.add_argument("--preset", default=DEFAULT_PRESET, help="x264 speed/compression preset, default: medium")
+    parser.add_argument(
+        "--quality",
+        choices=tuple(QUALITY_PROFILES),
+        default=DEFAULT_PROFILE,
+        help="Named output profile: quick for caption review, medium for normal export, high for final quality",
+    )
+    parser.add_argument("--crf", type=int, help="Override profile CRF; lower is larger/better")
+    parser.add_argument("--preset", help="Override profile x264 speed/compression preset")
+    parser.add_argument("--height", type=int, help="Override profile output height; preserves aspect ratio")
     parser.add_argument("--video-codec", default=DEFAULT_VIDEO_CODEC, help="Video codec to use, default: libx264")
     parser.add_argument("--no-progress", action="store_true", help="Hide ffmpeg progress output")
     parser.add_argument(
@@ -380,6 +414,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def cli(argv: list[str] | None = None) -> int:
     try:
         args = parse_args(argv)
+        settings = profile_settings(args.quality)
+        crf = args.crf if args.crf is not None else settings["crf"]
+        preset = args.preset if args.preset is not None else settings["preset"]
+        height = args.height if args.height is not None else settings["height"]
         style = None if args.no_style else args.style
         burn_subtitles(
             Path(args.video),
@@ -388,11 +426,13 @@ def cli(argv: list[str] | None = None) -> int:
             overwrite=args.force,
             style=style,
             video_codec=args.video_codec,
-            preset=args.preset,
-            crf=args.crf,
+            preset=str(preset),
+            crf=int(crf),
+            height=int(height) if height is not None else None,
+            profile=args.quality,
             show_progress=not args.no_progress,
         )
-    except (FileExistsError, FileNotFoundError, RuntimeError, subprocess.SubprocessError) as e:
+    except (FileExistsError, FileNotFoundError, RuntimeError, ValueError, subprocess.SubprocessError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 

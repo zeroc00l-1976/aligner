@@ -164,9 +164,11 @@ Current coverage includes:
    regular `ffmpeg`, then common Homebrew `ffmpeg-full` paths.
 3. Probe source video specs and print them before encoding.
 4. Refuse to overwrite the output unless `--force` is passed.
-5. Run ffmpeg with the subtitles filter, explicit x264 settings, copied audio,
+5. Apply a named quality profile. `quick` is the default review output; `medium`
+   and `high` keep source height with slower/better encoding defaults.
+6. Run ffmpeg with the subtitles filter, explicit x264 settings, copied audio,
    and `-progress pipe:1`.
-6. Parse ffmpeg progress events and update a terminal progress bar.
+7. Parse ffmpeg progress events and update a terminal progress bar.
 
 ## Known Issues And Risks
 

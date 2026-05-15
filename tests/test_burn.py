@@ -4,6 +4,8 @@ import pytest
 
 from burn import (
     DEFAULT_STYLE,
+    QUALITY_PROFILES,
+    build_video_filter,
     build_ffmpeg_command,
     ensure_output_writable,
     escape_filter_value,
@@ -17,6 +19,7 @@ from burn import (
     progress_bar,
     probe_duration,
     probe_video_info,
+    profile_settings,
     require_subtitles_filter,
     subtitles_filter,
     subtitle_capable_ffmpeg_binary,
@@ -44,6 +47,27 @@ def test_subtitles_filter_can_disable_style(tmp_path: Path) -> None:
     subtitle_path.write_text("", encoding="utf-8")
 
     assert "force_style" not in subtitles_filter(subtitle_path, style=None)
+
+
+def test_profile_settings_returns_named_profile_copy() -> None:
+    settings = profile_settings("quick")
+
+    assert settings == QUALITY_PROFILES["quick"]
+    assert settings is not QUALITY_PROFILES["quick"]
+
+
+def test_profile_settings_rejects_unknown_profile() -> None:
+    with pytest.raises(ValueError, match="Unknown quality profile"):
+        profile_settings("tiny")
+
+
+def test_build_video_filter_adds_scale_before_subtitles(tmp_path: Path) -> None:
+    subtitle_path = tmp_path / "captions.srt"
+    subtitle_path.write_text("", encoding="utf-8")
+
+    filter_value = build_video_filter(subtitle_path, style=None, height=720)
+
+    assert filter_value.startswith("scale=-2:720,subtitles=")
 
 
 def test_ensure_output_writable_rejects_existing_output_without_force(tmp_path: Path) -> None:
@@ -110,13 +134,13 @@ def test_build_ffmpeg_command_uses_subtitles_filter_and_copies_audio(tmp_path: P
     subtitle_path = tmp_path / "captions.srt"
     output_path = tmp_path / "output.mp4"
 
-    cmd = build_ffmpeg_command(video_path, subtitle_path, output_path, overwrite=False, style=None)
+    cmd = build_ffmpeg_command(video_path, subtitle_path, output_path, overwrite=False, style=None, height=720)
 
     assert cmd[0] == "ffmpeg"
     assert "-n" in cmd
     assert cmd[cmd.index("-i") + 1] == str(video_path)
     assert "-vf" in cmd
-    assert f"subtitles=filename='{subtitle_path.resolve()}'" in cmd
+    assert f"scale=-2:720,subtitles=filename='{subtitle_path.resolve()}'" in cmd
     assert cmd[cmd.index("-c:v") + 1] == "libx264"
     assert cmd[cmd.index("-crf") + 1] == "23"
     assert cmd[cmd.index("-c:a") + 1] == "copy"
