@@ -1,3 +1,4 @@
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -6,9 +7,12 @@ from qa import (
     best_official_window,
     build_captions_from_timed_words,
     compare_asr_to_official,
+    find_retime_audio_files,
     normalize_text,
     official_word_tokens,
-    retime_official_transcript,
+    retime_cli,
+    retime_output_paths,
+    selected_retime_pair,
     similarity,
     timing_report,
     transfer_word_timings,
@@ -169,3 +173,47 @@ def test_official_word_tokens_preserve_original_text(tmp_path: Path) -> None:
 def test_similarity_handles_empty_text() -> None:
     assert similarity("", "") == 1.0
     assert similarity("", "audio") == 0.0
+
+
+def test_retime_output_paths_default_to_aligned_names(tmp_path: Path) -> None:
+    srt_path, vtt_path, report_path = retime_output_paths(Path("convert/show.mp3"), tmp_path)
+
+    assert srt_path == tmp_path / "show.srt"
+    assert vtt_path == tmp_path / "show.vtt"
+    assert report_path == tmp_path / "show.timing-report.json"
+
+
+def test_selected_retime_pair_requires_both_positional_paths() -> None:
+    assert selected_retime_pair(Namespace(audio=None, transcript=None)) is None
+
+    with pytest.raises(ValueError):
+        selected_retime_pair(Namespace(audio="audio.mp3", transcript=None))
+
+
+def test_find_retime_audio_files_returns_supported_files_sorted(tmp_path: Path) -> None:
+    (tmp_path / "b.mp3").write_text("", encoding="utf-8")
+    (tmp_path / "a.wav").write_text("", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("", encoding="utf-8")
+
+    assert [path.name for path in find_retime_audio_files(tmp_path)] == ["a.wav", "b.mp3"]
+
+
+def test_retime_cli_batch_processes_same_stem_pairs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    input_dir = tmp_path / "convert"
+    output_dir = tmp_path / "aligned"
+    input_dir.mkdir()
+    (input_dir / "briefing.mp3").write_text("", encoding="utf-8")
+    (input_dir / "briefing.txt").write_text("Official transcript.", encoding="utf-8")
+
+    def fake_retime_file_pair(audio_path, transcript_path, srt_path, vtt_path, report_path, args):
+        srt_path.write_text("srt", encoding="utf-8")
+        vtt_path.write_text("vtt", encoding="utf-8")
+        report_path.write_text("{}", encoding="utf-8")
+        return {"matched_ratio": 1.0, "weak_span_count": 0}
+
+    monkeypatch.setattr("qa.retime_file_pair", fake_retime_file_pair)
+
+    assert retime_cli(["--input-dir", str(input_dir), "--output-dir", str(output_dir)]) == 0
+    assert (output_dir / "briefing.srt").exists()
+    assert (output_dir / "briefing.vtt").exists()
+    assert (output_dir / "briefing.timing-report.json").exists()

@@ -1,38 +1,13 @@
 # Aligner
 
-Aligner is a small command-line tool for forced-aligning audio with a matching
-plain-text transcript. It uses `aeneas` to produce a JSON sync map, then converts
-that sync map into subtitle files in SRT and WebVTT format.
+Aligner creates timed subtitle files from an audio file and an official
+plain-text transcript. It uses `faster-whisper` word timestamps for the audio
+timing, then maps the official transcript text onto those timings so the final
+captions keep the trusted wording.
 
-The current project is intentionally starter-sized and managed with `uv`: the
-main implementation is in `align.py`, with `convert/` as the default input
-folder and `aligned/` as the default output folder.
-
-## What It Does
-
-For each `.wav` or `.mp3` file in the input directory, the script looks for a
-transcript with the same base filename:
-
-```text
-convert/
-  20250805_BPB.wav
-  20250805_BPB.txt
-```
-
-Running the aligner writes:
-
-```text
-aligned/
-  20250805_BPB.json
-  20250805_BPB.srt
-  20250805_BPB.vtt
-```
-
-Before alignment, the transcript is split into caption-sized lines. This gives
-aeneas short text fragments to align, which is much better for official news
-transcripts than aligning whole paragraphs and guessing later. The raw `.json`
-contains those aligned caption chunks, and the generated `.srt`/`.vtt` files use
-them directly.
+The default workflow is batch-friendly: put matching `.mp3` or `.wav` and `.txt`
+files in `convert/`, then run `uv run aligner`. Outputs are written to
+`aligned/`.
 
 ## Requirements
 
@@ -40,37 +15,31 @@ them directly.
 - Python 3.11 is currently used by the local `.python-version`.
 - `ffmpeg` must be installed and available on `PATH`.
 
-On macOS, install `ffmpeg` with:
+On macOS:
 
 ```sh
 brew install ffmpeg
 ```
 
+The first ASR run may download the selected `faster-whisper` model.
+
 Open-caption burning requires an ffmpeg build with the `subtitles` filter. On
-macOS with Homebrew, the regular `ffmpeg` formula may not include that filter.
-Install `ffmpeg-full` for subtitle burning:
+macOS with Homebrew, install `ffmpeg-full` if the regular build does not include
+that filter:
 
 ```sh
 brew install ffmpeg-full
 ```
 
-`ffmpeg-full` is keg-only, but `burn-subtitles` automatically checks common
-Homebrew locations for it when regular `ffmpeg` does not support subtitles.
-
-If your subtitle-capable ffmpeg is installed somewhere custom, either put it
-first on `PATH`:
-
-```sh
-export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"
-```
-
-or point this project at it for a single command:
+`burn-subtitles` automatically checks common Homebrew `ffmpeg-full` locations
+when regular `ffmpeg` does not support subtitles. You can also point directly to
+a custom ffmpeg binary:
 
 ```sh
 ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles input.mp4 captions.srt output.mp4
 ```
 
-Verify support with:
+Verify subtitle-filter support with:
 
 ```sh
 /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
@@ -84,144 +53,121 @@ Install and sync the Python environment:
 uv sync
 ```
 
-Run the default alignment job:
-
-```sh
-uv run aligner
-```
-
-By default, this reads from `convert/` and writes to `aligned/`.
-
-## Using Your Own Files
-
-1. Put your audio file in `convert/`.
-2. Put a plain-text transcript with the same base filename in `convert/`.
-3. Run the aligner.
-4. Find the generated files in `aligned/`.
-
-Example input:
+Put matching files in `convert/`:
 
 ```text
 convert/
-  interview.wav
-  interview.txt
+  20260812_DPB.mp3
+  20260812_DPB.txt
 ```
 
-Run:
+Run the aligner:
 
 ```sh
 uv run aligner
 ```
 
-Example output:
+That writes:
 
 ```text
 aligned/
-  interview.json
-  interview.srt
-  interview.vtt
+  20260812_DPB.srt
+  20260812_DPB.vtt
+  20260812_DPB.timing-report.json
 ```
 
-The script processes every top-level `.wav` and `.mp3` file in the input
-directory. If an audio file does not have a matching `.txt` transcript, it is
-skipped and the script continues with the next file.
+The `.srt` and `.vtt` files use the official transcript text. The timing report
+shows how many official words matched ASR word anchors and lists weak spans
+where timing had to be estimated.
 
-For batch runs, `aligner` prints file-level progress after each audio file. A
-single long file can still take a while because aeneas does not expose detailed
-in-file progress.
+## Batch Mode
 
-Existing output files are not overwritten unless you pass `--force`:
+By default, `aligner` scans the top level of `convert/` for `.mp3` and `.wav`
+files. Each audio file needs a same-stem `.txt` transcript:
 
-```sh
-uv run aligner --force
+```text
+interview.mp3
+interview.txt
 ```
 
-## Aligning One File Pair
-
-To align one specific audio/transcript pair instead of processing the whole
-input folder, pass both paths:
-
-```sh
-uv run aligner path/to/interview.wav path/to/interview.txt
-```
-
-This still writes to `aligned/` by default. To choose a different output folder:
-
-```sh
-uv run aligner path/to/interview.wav path/to/interview.txt --output-dir path/to/output
-```
-
-To use custom folders:
+Audio files without matching transcripts are skipped. To use different folders:
 
 ```sh
 uv run aligner --input-dir path/to/input --output-dir path/to/output
 ```
 
-To set the aeneas language code:
+## One File Pair
+
+To process one specific audio/transcript pair:
 
 ```sh
-uv run aligner --language eng
+uv run aligner convert/interview.mp3 convert/interview.txt
 ```
 
-To tune subtitle cue length:
+This writes to `aligned/` by default. You can override individual output paths:
+
+```sh
+uv run aligner convert/interview.mp3 convert/interview.txt \
+  --srt aligned/interview.srt \
+  --vtt aligned/interview.vtt \
+  --report aligned/interview.timing-report.json
+```
+
+## Caption Timing Options
+
+The default model is `base.en`, which is a sturdy speed/accuracy balance for
+English audio:
+
+```sh
+uv run aligner --model base.en
+uv run aligner --model small.en
+```
+
+Useful tuning options:
 
 ```sh
 uv run aligner --max-caption-chars 70 --max-caption-duration 4
+uv run aligner --beam-size 3
+uv run aligner --language en
 ```
 
-For rare debugging cases, you can align against the original transcript
-paragraphs instead:
+Larger models and bigger beam sizes may improve difficult audio, but they take
+longer.
+
+## QA Report
+
+Every `aligner` run writes a timing report. Look at:
+
+- `matched_ratio`: higher means more official words were directly anchored to
+  ASR word timings.
+- `weak_span_count`: number of longer stretches where timings were estimated.
+- `weak_spans`: the actual text and timestamps to review.
+
+The separate `check-transcript` command is available when you want a diagnostic
+comparison without writing retimed captions:
 
 ```sh
-uv run aligner --no-pre-split
+uv run check-transcript convert/interview.mp3 convert/interview.txt
 ```
 
-## Input Rules
+Write a JSON report and raw ASR timing SRT:
 
-- Audio files must end in `.wav` or `.mp3`.
-- Each audio file must have a same-stem `.txt` transcript in the same input
-  directory.
-- Transcripts are treated as plain text by aeneas.
-- Blank transcript fragments can appear in the JSON output, but are skipped when
-  generating SRT and VTT.
-- Transcripts are pre-split into caption-sized cues before alignment. Defaults
-  are 84 characters and 6 seconds per cue.
-
-Example:
-
-```text
-interview.wav
-interview.txt
+```sh
+uv run check-transcript convert/interview.mp3 convert/interview.txt \
+  --output aligned/interview.qa.json \
+  --asr-srt aligned/interview.asr.srt
 ```
-
-The transcript should already be cleaned into the chunks you want aligned. Each
-line or paragraph can become a subtitle fragment depending on how aeneas reads
-the plain-text file.
-
-## Output Formats
-
-- `.json`: raw aeneas sync map.
-- `.srt`: numbered subtitle cues using comma millisecond separators.
-- `.vtt`: WebVTT cues with a `WEBVTT` header.
 
 ## Burning Open Captions
 
-After generating an SRT file, you can burn it into a video as open captions with
-the helper command:
+After generating an SRT file, burn it into a video as open captions:
 
 ```sh
 uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4
 ```
 
-This creates a new video file with the captions rendered into the image. The
-original audio stream is copied when possible. Burning captions re-encodes the
-video stream, so the helper shows a progress bar while ffmpeg runs.
-
-Before encoding starts, the helper reads and prints the source video specs
-using `ffprobe`: resolution, frame rate, codec, pixel format, and bitrate.
-
-By default, `burn-subtitles` creates a quick review file for checking captions
-and timing:
+By default, `burn-subtitles` creates a quick 720p review file for checking
+caption timing:
 
 ```text
 quick:  720p max height, ultrafast encode, CRF 30
@@ -229,115 +175,25 @@ medium: source height, medium encode, CRF 23
 high:   source height, slow encode, CRF 18
 ```
 
-Use the default for review:
-
-```sh
-uv run burn-subtitles input.mp4 captions.srt review.mp4
-```
-
-Use named profiles when you want a better export:
+Use named profiles for better exports:
 
 ```sh
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality medium
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality high
 ```
 
-## Transcript QA
-
-For the most time-accurate captions, use ASR word timing as the timing scaffold
-while keeping the official transcript as the caption text:
-
-```sh
-uv run --group qa retime-transcript convert/interview.mp3 convert/interview.txt \
-  --srt aligned/interview.srt \
-  --vtt aligned/interview.vtt \
-  --report aligned/interview.timing-report.json
-```
-
-This command:
-
-- transcribes the audio with faster-whisper word timestamps,
-- maps official transcript words onto the ASR word timings,
-- writes official-text SRT/VTT captions,
-- writes a timing QA report for weak or estimated regions.
-
-Use a larger model when accuracy matters more than speed:
-
-```sh
-uv run --group qa retime-transcript convert/interview.mp3 convert/interview.txt \
-  --srt aligned/interview.srt \
-  --model small.en
-```
-
-The original comparison-only QA command is still available when you want a
-diagnostic report without writing retimed captions. It uses faster-whisper to
-transcribe the audio as a second opinion, then compares the ASR text against the
-official transcript. It does not replace the official transcript; it flags spots
-that need review.
-
-Run it with the `qa` dependency group:
-
-```sh
-uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt
-```
-
-Write a JSON report and a raw ASR timing SRT:
-
-```sh
-uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt \
-  --output aligned/interview.qa.json \
-  --asr-srt aligned/interview.asr.srt
-```
-
-The report lists possible mismatches with timestamps, official text, ASR text,
-and a similarity score. Lower scores are more suspicious. Tune sensitivity with:
-
-```sh
-uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --threshold 0.8
-```
-
-Useful model options:
-
-```sh
-uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --model base.en
-uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --model small.en
-```
-
-Larger models may be more accurate, but they take longer and may need to
-download model files the first time they run.
-
-Existing output videos are not overwritten unless you pass `--force`:
-
-```sh
-uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --force
-```
-
-The helper uses ffmpeg's `subtitles` video filter, so at least one available
-ffmpeg build must include libass/subtitles support. Check Homebrew's full build
-with:
-
-```sh
-/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
-```
-
-To use ffmpeg's default subtitle styling:
-
-```sh
-uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --no-style
-```
-
-The named profiles choose sensible defaults, but you can still override them.
-CRF controls quality and size: lower values are larger and higher quality;
-higher values are smaller and lower quality. Matching the source bitrate
-automatically is usually not ideal because burning captions requires a new
-encode and source bitrate does not always map cleanly to output quality.
-
-Examples:
+Override profile defaults when needed:
 
 ```sh
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality quick --crf 28
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality medium --height 720
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --no-progress
+```
+
+Existing output videos are not overwritten unless you pass `--force`:
+
+```sh
+uv run burn-subtitles input.mp4 captions.srt output.mp4 --force
 ```
 
 ## Tests
@@ -348,21 +204,13 @@ Run the test suite with:
 uv run pytest
 ```
 
-The current tests cover fast behavior that does not need a real audio alignment
-run: timestamp formatting, JSON-to-SRT/VTT conversion, audio file discovery,
-overwrite handling, burn command construction/progress helpers, ASR comparison
-logic, and CLI validation.
-
 ## Current Limitations
 
-- The script only scans the top level of the input directory.
-- Existing output files are skipped unless `--force` is passed.
-- MP3 files are converted to temporary 16 kHz mono WAV files before alignment.
-- If a caption chunk still aligns to a long duration, the final SRT/VTT writer
-  may split it proportionally as a readability fallback.
-- Tests do not yet cover a full aeneas alignment against a small audio fixture.
+- The aligner scans only the top level of the input directory.
+- Audio files must currently be `.mp3` or `.wav`.
+- The official transcript remains the source of truth, but transcript/audio
+  differences can still create estimated timing spans that need review.
+- `faster-whisper` may download model files on first use.
 - Burning open captions requires an ffmpeg build with the `subtitles` filter.
-- Transcript QA requires the optional `qa` dependency group and may download
-  faster-whisper model files on first use.
 
 See `DEVELOPMENT.md` for maintainer notes and the suggested next cleanup pass.

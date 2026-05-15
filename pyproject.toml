@@ -1,19 +1,18 @@
 [project]
 name = "aligner"
 version = "0.1.0"
-description = "Forced-align audio and transcript files into JSON, SRT, and WebVTT outputs."
+description = "Create audio-timed captions from official transcript text."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "aeneas==1.7.3.0",
+    "faster-whisper>=1.2.1",
     "numpy==1.23.5",
 ]
 
 [project.scripts]
-aligner = "align:main"
+aligner = "qa:retime_main"
 burn-subtitles = "burn:main"
 check-transcript = "qa:main"
-retime-transcript = "qa:retime_main"
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -22,13 +21,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 py-modules = ["align", "burn", "qa"]
 
-[tool.uv.extra-build-dependencies]
-aeneas = ["numpy==1.23.5"]
-
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
-]
-qa = [
-    "faster-whisper>=1.2.1",
 ]

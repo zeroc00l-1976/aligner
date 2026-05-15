@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from align import (
+    AUDIO_EXTENSIONS,
     DEFAULT_MAX_CAPTION_CHARS,
     DEFAULT_MAX_CAPTION_DURATION,
     seconds_to_srt_time,
@@ -23,6 +24,8 @@ DEFAULT_LANGUAGE = "en"
 DEFAULT_THRESHOLD = 0.72
 MIN_WORD_DURATION = 0.08
 DEFAULT_RETIME_REPORT_SUFFIX = ".timing-report.json"
+DEFAULT_INPUT_DIR = "convert"
+DEFAULT_OUTPUT_DIR = "aligned"
 
 
 def normalize_text(text: str) -> str:
@@ -50,7 +53,7 @@ def load_faster_whisper_model(model_name: str, device: str, compute_type: str) -
         from faster_whisper import WhisperModel
     except ModuleNotFoundError as e:
         raise RuntimeError(
-            "faster-whisper is required for transcript QA. Install/run with: uv run --group qa check-transcript ..."
+            "faster-whisper is required. Install project dependencies with: uv sync"
         ) from e
 
     return WhisperModel(model_name, device=device, compute_type=compute_type)
@@ -504,9 +507,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def parse_retime_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create audio-timed captions using official transcript text.")
-    parser.add_argument("audio", help="Audio or video file to transcribe for timing")
-    parser.add_argument("transcript", help="Official hard transcript .txt file")
-    parser.add_argument("--srt", required=True, help="Output official-text SRT path")
+    parser.add_argument("audio", nargs="?", help="Optional single audio/video file to transcribe for timing")
+    parser.add_argument("transcript", nargs="?", help="Optional official hard transcript .txt file")
+    parser.add_argument("--input-dir", default=DEFAULT_INPUT_DIR, help="Batch input folder, default: convert")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Batch output folder, default: aligned")
+    parser.add_argument("--srt", help="Output official-text SRT path for single-file mode")
     parser.add_argument("--vtt", help="Optional output official-text WebVTT path")
     parser.add_argument("--report", help="Optional timing QA JSON report path")
     parser.add_argument("--asr-srt", help="Optional raw ASR timing SRT path")
@@ -533,6 +538,64 @@ def parse_retime_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--show", type=int, default=8, help="Number of weak timing spans to print, default: 8")
     return parser.parse_args(argv)
+
+
+def find_retime_audio_files(input_dir: Path) -> list[Path]:
+    files = [path for path in input_dir.iterdir() if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS]
+    files.sort()
+    return files
+
+
+def selected_retime_pair(args: argparse.Namespace) -> tuple[Path, Path] | None:
+    if not args.audio and not args.transcript:
+        return None
+    if not args.audio or not args.transcript:
+        raise ValueError("Provide both audio and transcript paths, or neither to process the input folder.")
+    return Path(args.audio).expanduser().resolve(), Path(args.transcript).expanduser().resolve()
+
+
+def retime_output_paths(
+    audio_path: Path,
+    output_dir: Path,
+    srt_path: str | None = None,
+    vtt_path: str | None = None,
+    report_path: str | None = None,
+) -> tuple[Path, Path, Path]:
+    resolved_srt = Path(srt_path).expanduser().resolve() if srt_path else (output_dir / f"{audio_path.stem}.srt").resolve()
+    resolved_vtt = Path(vtt_path).expanduser().resolve() if vtt_path else resolved_srt.with_suffix(".vtt")
+    resolved_report = (
+        Path(report_path).expanduser().resolve()
+        if report_path
+        else resolved_srt.with_suffix(DEFAULT_RETIME_REPORT_SUFFIX)
+    )
+    return resolved_srt, resolved_vtt, resolved_report
+
+
+def retime_file_pair(
+    audio_path: Path,
+    transcript_path: Path,
+    srt_path: Path,
+    vtt_path: Path,
+    report_path: Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    captions, report, _asr_words = retime_official_transcript(
+        audio_path,
+        transcript_path,
+        model_name=args.model,
+        device=args.device,
+        compute_type=args.compute_type,
+        language=args.language,
+        beam_size=args.beam_size,
+        max_caption_chars=args.max_caption_chars,
+        max_caption_duration=args.max_caption_duration,
+    )
+
+    write_official_srt(captions, srt_path)
+    write_official_vtt(captions, vtt_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return report
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -594,51 +657,85 @@ def print_timing_report(report: dict[str, Any], limit: int) -> None:
 def retime_cli(argv: list[str] | None = None) -> int:
     try:
         args = parse_retime_args(argv)
-        audio_path = Path(args.audio).expanduser().resolve()
-        transcript_path = Path(args.transcript).expanduser().resolve()
+        file_pair = selected_retime_pair(args)
+        output_dir = Path(args.output_dir).expanduser().resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        if not audio_path.exists():
-            raise FileNotFoundError(f"Audio/video not found: {audio_path}")
-        if not transcript_path.exists():
-            raise FileNotFoundError(f"Transcript not found: {transcript_path}")
+        if file_pair is None and (args.srt or args.vtt or args.report or args.asr_srt):
+            raise ValueError("--srt, --vtt, --report, and --asr-srt are only supported with a single audio/transcript pair.")
 
         print(f"Retiming official transcript with faster-whisper model={args.model} device={args.device} compute={args.compute_type}")
-        captions, report, asr_words = retime_official_transcript(
-            audio_path,
-            transcript_path,
-            model_name=args.model,
-            device=args.device,
-            compute_type=args.compute_type,
-            language=args.language,
-            beam_size=args.beam_size,
-            max_caption_chars=args.max_caption_chars,
-            max_caption_duration=args.max_caption_duration,
-        )
 
-        srt_path = Path(args.srt).expanduser().resolve()
-        write_official_srt(captions, srt_path)
-        print(f"Wrote retimed official SRT: {srt_path}")
+        if file_pair:
+            audio_path, transcript_path = file_pair
+            if not audio_path.exists():
+                raise FileNotFoundError(f"Audio/video not found: {audio_path}")
+            if not transcript_path.exists():
+                raise FileNotFoundError(f"Transcript not found: {transcript_path}")
 
-        if args.vtt:
-            vtt_path = Path(args.vtt).expanduser().resolve()
-            write_official_vtt(captions, vtt_path)
-            print(f"Wrote retimed official VTT: {vtt_path}")
+            srt_path, vtt_path, report_path = retime_output_paths(
+                audio_path,
+                output_dir,
+                srt_path=args.srt,
+                vtt_path=args.vtt,
+                report_path=args.report,
+            )
+            report = retime_file_pair(audio_path, transcript_path, srt_path, vtt_path, report_path, args)
+            print(f"Wrote official SRT: {srt_path}")
+            print(f"Wrote official VTT: {vtt_path}")
+            print(f"Wrote timing QA report: {report_path}")
 
-        report_path = Path(args.report).expanduser().resolve() if args.report else srt_path.with_suffix(DEFAULT_RETIME_REPORT_SUFFIX)
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        print(f"Wrote timing QA report: {report_path}")
+            if args.asr_srt:
+                asr_words = transcribe_words(
+                    audio_path,
+                    model_name=args.model,
+                    device=args.device,
+                    compute_type=args.compute_type,
+                    language=args.language,
+                    beam_size=args.beam_size,
+                )
+                asr_segments = [{"start": word["start"], "end": word["end"], "text": word["text"]} for word in asr_words]
+                asr_srt_path = Path(args.asr_srt).expanduser().resolve()
+                write_asr_srt(asr_segments, asr_srt_path)
+                print(f"Wrote ASR word timing SRT: {asr_srt_path}")
 
-        if args.asr_srt:
-            asr_segments = [
-                {"start": word["start"], "end": word["end"], "text": word["text"]}
-                for word in asr_words
-            ]
-            asr_srt_path = Path(args.asr_srt).expanduser().resolve()
-            write_asr_srt(asr_segments, asr_srt_path)
-            print(f"Wrote ASR word timing SRT: {asr_srt_path}")
+            print_timing_report(report, limit=args.show)
+            return 0
 
-        print_timing_report(report, limit=args.show)
+        input_dir = Path(args.input_dir).expanduser().resolve()
+        if not input_dir.exists():
+            raise FileNotFoundError(f"Input dir not found: {input_dir}")
+
+        audio_files = find_retime_audio_files(input_dir)
+        if not audio_files:
+            print(f"No .wav or .mp3 files found in {input_dir}")
+            return 0
+
+        failures = 0
+        for index, audio_path in enumerate(audio_files, start=1):
+            transcript_path = input_dir / f"{audio_path.stem}.txt"
+            if not transcript_path.exists():
+                print(f"[{index}/{len(audio_files)}] Skipping {audio_path.name}, missing {transcript_path.name}")
+                continue
+
+            srt_path, vtt_path, report_path = retime_output_paths(audio_path, output_dir)
+            print(f"[{index}/{len(audio_files)}] Retiming {audio_path.name}")
+            try:
+                report = retime_file_pair(audio_path, transcript_path, srt_path, vtt_path, report_path, args)
+            except (RuntimeError, ValueError, FileNotFoundError) as e:
+                failures += 1
+                print(f"      ERROR: {e}", file=sys.stderr)
+                continue
+
+            print(f"      Wrote: {srt_path.name}, {vtt_path.name}, {report_path.name}")
+            print(
+                f"      QA: matched {report['matched_ratio']:.1%}, "
+                f"weak spans {report['weak_span_count']}"
+            )
+
+        if failures:
+            print(f"Completed with {failures} failed file(s).", file=sys.stderr)
+            return 1
     except (FileNotFoundError, RuntimeError, ValueError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
