@@ -6,6 +6,7 @@ import pytest
 from align import (
     cli,
     ensure_outputs_writable,
+    ffmpeg_binary,
     find_audio_files,
     fragment_text,
     json_to_srt,
@@ -60,6 +61,18 @@ def test_seconds_to_vtt_time(seconds: float, expected: str) -> None:
 
 def test_fragment_text_joins_non_empty_lines() -> None:
     assert fragment_text({"lines": [" first ", "", "second "]}) == "first second"
+
+
+def test_ffmpeg_binary_defaults_to_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALIGNER_FFMPEG", raising=False)
+
+    assert ffmpeg_binary() == "ffmpeg"
+
+
+def test_ffmpeg_binary_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALIGNER_FFMPEG", "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg")
+
+    assert ffmpeg_binary() == "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg"
 
 
 def test_json_to_srt_skips_empty_fragments(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,6 +12,11 @@ from typing import Any
 TIME_PRECISION = 1000
 AUDIO_EXTENSIONS = {".wav", ".mp3"}
 OUTPUT_EXTENSIONS = (".json", ".srt", ".vtt")
+FFMPEG_ENV_VAR = "ALIGNER_FFMPEG"
+
+
+def ffmpeg_binary() -> str:
+    return os.environ.get(FFMPEG_ENV_VAR, "ffmpeg")
 
 
 def seconds_to_srt_time(t: float) -> str:
@@ -31,11 +37,11 @@ def seconds_to_vtt_time(t: float) -> str:
 
 def require_ffmpeg() -> None:
     try:
-        subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([ffmpeg_binary(), "-version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
         raise RuntimeError(
             "ffmpeg is required to handle mp3 input and for reliable audio decoding. "
-            "Install it with: brew install ffmpeg"
+            f"Install it with Homebrew and ensure it is on PATH, or set {FFMPEG_ENV_VAR}."
         ) from e
 
 
@@ -61,7 +67,7 @@ def convert_to_wav(input_audio: Path, tmp_dir: Path) -> Path:
     out_wav = tmp_dir / f"{input_audio.stem}.aeneas.wav"
 
     cmd = [
-        "ffmpeg",
+        ffmpeg_binary(),
         "-y",
         "-i",
         str(input_audio),

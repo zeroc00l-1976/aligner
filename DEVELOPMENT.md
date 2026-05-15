@@ -37,6 +37,28 @@ ffmpeg: 8.1
 aeneas: 1.7.3.0
 ```
 
+Regular Homebrew `ffmpeg` may not include the `subtitles` filter. For
+open-caption burning on macOS, install `ffmpeg-full`:
+
+```sh
+brew install ffmpeg-full
+```
+
+Because `ffmpeg-full` is keg-only, either add it to `PATH` before the regular
+ffmpeg:
+
+```sh
+export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"
+```
+
+or set `ALIGNER_FFMPEG` when running a command:
+
+```sh
+ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles input.mp4 captions.srt output.mp4
+```
+
+Both `align.py` and `burn.py` respect `ALIGNER_FFMPEG`.
+
 `aeneas` needs `numpy` available while it builds, so `pyproject.toml` includes a
 `tool.uv.extra-build-dependencies` entry for it. Keep that setting unless the
 dependency is replaced or a future `aeneas` release fixes its build metadata.
@@ -157,7 +179,7 @@ uv run aligner --help
 uv run burn-subtitles --help
 uv run pytest
 ffmpeg -version
-ffmpeg -filters | grep subtitles
+/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
 ```
 
 Run the sample alignment:

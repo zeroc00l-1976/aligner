@@ -63,6 +63,22 @@ def test_build_ffmpeg_command_uses_subtitles_filter_and_copies_audio(tmp_path: P
     assert cmd[-3:] == ["-c:a", "copy", str(output_path)]
 
 
+def test_build_ffmpeg_command_uses_configured_ffmpeg_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ALIGNER_FFMPEG", "/custom/ffmpeg")
+
+    cmd = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "captions.srt",
+        tmp_path / "output.mp4",
+        overwrite=False,
+        style=None,
+    )
+
+    assert cmd[0] == "/custom/ffmpeg"
+
+
 def test_require_subtitles_filter_rejects_ffmpeg_without_subtitles_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     class Proc:
         returncode = 0

@@ -40,6 +40,32 @@ On macOS, install `ffmpeg` with:
 brew install ffmpeg
 ```
 
+Open-caption burning requires an ffmpeg build with the `subtitles` filter. On
+macOS with Homebrew, the regular `ffmpeg` formula may not include that filter.
+Install `ffmpeg-full` for subtitle burning:
+
+```sh
+brew install ffmpeg-full
+```
+
+`ffmpeg-full` is keg-only, so either put it first on `PATH`:
+
+```sh
+export PATH="/opt/homebrew/opt/ffmpeg-full/bin:$PATH"
+```
+
+or point this project at it for a single command:
+
+```sh
+ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles input.mp4 captions.srt output.mp4
+```
+
+Verify support with:
+
+```sh
+/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
+```
+
 ## Quick Start
 
 Install and sync the Python environment:
@@ -168,10 +194,11 @@ uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 
 ```
 
 The helper uses ffmpeg's `subtitles` video filter, so your ffmpeg build must
-include libass/subtitles support. Check with:
+include libass/subtitles support. Check the ffmpeg that the app will use with:
 
 ```sh
-ffmpeg -filters | grep subtitles
+ALIGNER_FFMPEG=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg uv run burn-subtitles --help
+/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
 ```
 
 To use ffmpeg's default subtitle styling:

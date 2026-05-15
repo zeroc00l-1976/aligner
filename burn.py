@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from align import require_ffmpeg
+from align import FFMPEG_ENV_VAR, ffmpeg_binary, require_ffmpeg
 
 
 DEFAULT_STYLE = "FontName=Arial,FontSize=24,Outline=2,Shadow=1,Alignment=2,MarginV=36"
@@ -37,12 +37,13 @@ def ensure_output_writable(output_path: Path, overwrite: bool) -> None:
 def require_subtitles_filter() -> None:
     require_ffmpeg()
 
-    proc = subprocess.run(["ffmpeg", "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.run([ffmpeg_binary(), "-filters"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     filters = f"{proc.stdout}\n{proc.stderr}"
     if proc.returncode != 0 or " subtitles " not in filters:
         raise RuntimeError(
             "This ffmpeg build does not include the 'subtitles' filter required for open captions. "
-            "Install an ffmpeg build with libass/subtitles support."
+            "Install an ffmpeg build with libass/subtitles support. On macOS with Homebrew, "
+            f"install ffmpeg-full and set {FFMPEG_ENV_VAR}=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg."
         )
 
 
@@ -53,7 +54,7 @@ def build_ffmpeg_command(
     overwrite: bool,
     style: str | None = DEFAULT_STYLE,
 ) -> list[str]:
-    cmd = ["ffmpeg"]
+    cmd = [ffmpeg_binary()]
     cmd.append("-y" if overwrite else "-n")
     cmd.extend(
         [
