@@ -14,9 +14,10 @@ uv.lock           Locked uv dependency resolution
 .venv/            Local virtual environment, ignored by Git
 convert/          Default local input folder
 aligned/          Default generated output folder, ignored by Git
+tests/            Pytest coverage for fast non-audio behavior
 ```
 
-There is currently no Git repository initialized in this folder.
+The repository uses `main` as its default branch.
 
 ## Local Environment
 
@@ -40,6 +41,37 @@ aeneas: 1.7.3.0
 dependency is replaced or a future `aeneas` release fixes its build metadata.
 
 The project installs a console command named `aligner`.
+
+## Test Suite
+
+Pytest is installed as a `uv` development dependency in `pyproject.toml`:
+
+```toml
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+```
+
+Run tests with:
+
+```sh
+uv run pytest
+```
+
+The tests live in `tests/test_align.py`. They intentionally avoid the expensive
+or environment-sensitive aeneas path for now, so they run quickly and can be used
+as a safety net while refactoring.
+
+Current coverage includes:
+
+- SRT and WebVTT timestamp formatting.
+- Joining non-empty fragment lines.
+- JSON-to-SRT and JSON-to-VTT conversion.
+- Supported audio file discovery.
+- Output path and overwrite checks.
+- CLI validation for batch mode, skipped existing outputs, and incomplete file
+  pairs.
 
 ## Code Map
 

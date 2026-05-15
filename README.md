@@ -149,10 +149,23 @@ the plain-text file.
 - `.srt`: numbered subtitle cues using comma millisecond separators.
 - `.vtt`: WebVTT cues with a `WEBVTT` header.
 
+## Tests
+
+Run the test suite with:
+
+```sh
+uv run pytest
+```
+
+The current tests cover fast behavior that does not need a real audio alignment
+run: timestamp formatting, JSON-to-SRT/VTT conversion, audio file discovery,
+overwrite handling, and CLI validation.
+
 ## Current Limitations
 
 - The script only scans the top level of the input directory.
 - Existing output files are skipped unless `--force` is passed.
 - MP3 files are converted to temporary 16 kHz mono WAV files before alignment.
+- Tests do not yet cover a full aeneas alignment against a small audio fixture.
 
 See `DEVELOPMENT.md` for maintainer notes and the suggested next cleanup pass.
