@@ -242,6 +242,44 @@ uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality medium
 uv run burn-subtitles input.mp4 captions.srt output.mp4 --quality high
 ```
 
+## Transcript QA
+
+When caption timing or text looks suspicious, run an optional ASR comparison
+pass. This uses faster-whisper to transcribe the audio as a second opinion, then
+compares the ASR text against the official transcript. It does not replace the
+official transcript; it flags spots that need review.
+
+Run it with the `qa` dependency group:
+
+```sh
+uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt
+```
+
+Write a JSON report and a raw ASR timing SRT:
+
+```sh
+uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt \
+  --output aligned/interview.qa.json \
+  --asr-srt aligned/interview.asr.srt
+```
+
+The report lists possible mismatches with timestamps, official text, ASR text,
+and a similarity score. Lower scores are more suspicious. Tune sensitivity with:
+
+```sh
+uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --threshold 0.8
+```
+
+Useful model options:
+
+```sh
+uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --model base.en
+uv run --group qa check-transcript convert/interview.mp3 convert/interview.txt --model small.en
+```
+
+Larger models may be more accurate, but they take longer and may need to
+download model files the first time they run.
+
 Existing output videos are not overwritten unless you pass `--force`:
 
 ```sh
@@ -286,8 +324,8 @@ uv run pytest
 
 The current tests cover fast behavior that does not need a real audio alignment
 run: timestamp formatting, JSON-to-SRT/VTT conversion, audio file discovery,
-overwrite handling, burn command construction/progress helpers, and CLI
-validation.
+overwrite handling, burn command construction/progress helpers, ASR comparison
+logic, and CLI validation.
 
 ## Current Limitations
 
@@ -298,5 +336,7 @@ validation.
   may split it proportionally as a readability fallback.
 - Tests do not yet cover a full aeneas alignment against a small audio fixture.
 - Burning open captions requires an ffmpeg build with the `subtitles` filter.
+- Transcript QA requires the optional `qa` dependency group and may download
+  faster-whisper model files on first use.
 
 See `DEVELOPMENT.md` for maintainer notes and the suggested next cleanup pass.

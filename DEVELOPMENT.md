@@ -9,6 +9,7 @@ needs cleanup.
 ```text
 align.py          Main CLI and alignment implementation
 burn.py           Helper CLI for burning SRT captions into video
+qa.py             Optional ASR comparison CLI for transcript QA
 pyproject.toml    Minimal project metadata
 uv.lock           Locked uv dependency resolution
 .python-version   Local Python version, currently 3.11
@@ -78,6 +79,7 @@ The project installs two console commands:
 ```sh
 uv run aligner
 uv run burn-subtitles
+uv run --group qa check-transcript
 ```
 
 ## Test Suite
@@ -111,6 +113,8 @@ Current coverage includes:
 - CLI validation for batch mode, skipped existing outputs, and incomplete file
   pairs.
 - Burn command construction and ffmpeg subtitle-filter preflight behavior.
+- ASR QA text normalization, similarity scoring, report generation, and ASR SRT
+  serialization.
 
 ## Code Map
 
@@ -148,6 +152,15 @@ Current coverage includes:
   events.
 - `cli()`: parses CLI arguments for the `burn-subtitles` command.
 
+`qa.py` is organized around these functions:
+
+- `transcribe_audio(...)`: runs faster-whisper and returns timestamped ASR
+  segments.
+- `compare_asr_to_official(...)`: compares ASR segments with nearby official
+  transcript chunks and records low-score mismatches.
+- `write_asr_srt(...)`: writes the raw ASR timing output for human review.
+- `cli()`: parses CLI arguments for `check-transcript`.
+
 ## Runtime Flow
 
 1. Parse `--input-dir`, `--output-dir`, and `--language`.
@@ -177,6 +190,27 @@ Current coverage includes:
    and `-progress pipe:1`.
 7. Parse ffmpeg progress events and update a terminal progress bar.
 
+## Transcript QA Flow
+
+`check-transcript` is a QA layer, not a transcript replacement.
+
+1. Load faster-whisper from the optional `qa` dependency group.
+2. Transcribe the audio/video into timestamped ASR segments.
+3. Split the official transcript with the same caption chunker used by
+   `aligner`.
+4. Compare ASR segments against nearby official chunks with a similarity score.
+5. Print suspicious low-score segments and optionally write:
+   - JSON report with all matches and mismatches.
+   - Raw ASR SRT for timing review.
+
+Run it with:
+
+```sh
+uv run --group qa check-transcript audio.mp3 transcript.txt \
+  --output aligned/audio.qa.json \
+  --asr-srt aligned/audio.asr.srt
+```
+
 ## Known Issues And Risks
 
 - **Large local media:** raw audio files in `convert/` can be very large and are
@@ -191,6 +225,8 @@ Current coverage includes:
   is a fallback, not true word-level alignment.
 - **ffmpeg subtitle support varies:** open-caption burning requires an ffmpeg
   build with the `subtitles` filter, which is not present in every install.
+- **ASR QA is advisory:** faster-whisper can flag likely transcript/audio
+  mismatches, but the official transcript remains the source of truth.
 - **Aligner progress is file-level:** aeneas does not expose fine-grained
   per-file alignment progress, so `aligner` reports batch progress after each
   file rather than percentage inside one long file.
@@ -198,10 +234,8 @@ Current coverage includes:
 ## Suggested Next Pass
 
 1. Add an integration fixture for a very short audio/transcript pair.
-2. Consider adding an optional ASR comparison mode for transcript confidence or
-   timing diagnostics.
-3. Consider recursive input processing if real workflows need nested folders.
-4. Consider moving from a single-file module to a package if the code grows.
+2. Consider recursive input processing if real workflows need nested folders.
+3. Consider moving from a single-file module to a package if the code grows.
 
 ## Verification Commands
 
@@ -211,6 +245,7 @@ Basic environment check:
 uv sync
 uv run aligner --help
 uv run burn-subtitles --help
+uv run --group qa check-transcript --help
 uv run pytest
 ffmpeg -version
 /opt/homebrew/opt/ffmpeg-full/bin/ffmpeg -filters | grep subtitles
