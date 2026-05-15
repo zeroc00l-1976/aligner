@@ -11,13 +11,14 @@ dependencies = [
 
 [project.scripts]
 aligner = "align:main"
+burn-subtitles = "burn:main"
 
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["align"]
+py-modules = ["align", "burn"]
 
 [tool.uv.extra-build-dependencies]
 aeneas = ["numpy==1.23.5"]

@@ -8,6 +8,7 @@ needs cleanup.
 
 ```text
 align.py          Main CLI and alignment implementation
+burn.py           Helper CLI for burning SRT captions into video
 pyproject.toml    Minimal project metadata
 uv.lock           Locked uv dependency resolution
 .python-version   Local Python version, currently 3.11
@@ -40,7 +41,12 @@ aeneas: 1.7.3.0
 `tool.uv.extra-build-dependencies` entry for it. Keep that setting unless the
 dependency is replaced or a future `aeneas` release fixes its build metadata.
 
-The project installs a console command named `aligner`.
+The project installs two console commands:
+
+```sh
+uv run aligner
+uv run burn-subtitles
+```
 
 ## Test Suite
 
@@ -72,6 +78,7 @@ Current coverage includes:
 - Output path and overwrite checks.
 - CLI validation for batch mode, skipped existing outputs, and incomplete file
   pairs.
+- Burn command construction and ffmpeg subtitle-filter preflight behavior.
 
 ## Code Map
 
@@ -93,6 +100,15 @@ Current coverage includes:
 - `cli()`: parses CLI arguments and coordinates batch processing.
 - `main()`: console-script wrapper around `cli()`.
 
+`burn.py` is organized around these functions:
+
+- `subtitles_filter(subtitle_path, style)`: builds the ffmpeg subtitles filter.
+- `require_subtitles_filter()`: checks that ffmpeg includes the required
+  `subtitles` filter.
+- `build_ffmpeg_command(...)`: builds the ffmpeg command for open captions.
+- `burn_subtitles(...)`: validates paths and runs ffmpeg.
+- `cli()`: parses CLI arguments for the `burn-subtitles` command.
+
 ## Runtime Flow
 
 1. Parse `--input-dir`, `--output-dir`, and `--language`.
@@ -106,6 +122,13 @@ Current coverage includes:
 8. Run aeneas and write JSON.
 9. Convert JSON to SRT and VTT.
 
+## Open Caption Flow
+
+1. Pass an input video, `.srt` file, and output video path to `burn-subtitles`.
+2. Check that ffmpeg is installed and exposes the `subtitles` filter.
+3. Refuse to overwrite the output unless `--force` is passed.
+4. Run ffmpeg with the subtitles filter and copy the audio stream.
+
 ## Known Issues And Risks
 
 - **Large local media:** raw audio files in `convert/` can be very large and are
@@ -115,6 +138,8 @@ Current coverage includes:
 - **No recursive processing:** nested input directories are ignored.
 - **Basic test coverage only:** tests cover pure formatting/conversion behavior
   and CLI validation, but not full aeneas alignment.
+- **ffmpeg subtitle support varies:** open-caption burning requires an ffmpeg
+  build with the `subtitles` filter, which is not present in every install.
 
 ## Suggested Next Pass
 
@@ -129,8 +154,10 @@ Basic environment check:
 ```sh
 uv sync
 uv run aligner --help
+uv run burn-subtitles --help
 uv run pytest
 ffmpeg -version
+ffmpeg -filters | grep subtitles
 ```
 
 Run the sample alignment:

@@ -149,6 +149,37 @@ the plain-text file.
 - `.srt`: numbered subtitle cues using comma millisecond separators.
 - `.vtt`: WebVTT cues with a `WEBVTT` header.
 
+## Burning Open Captions
+
+After generating an SRT file, you can burn it into a video as open captions with
+the helper command:
+
+```sh
+uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4
+```
+
+This creates a new video file with the captions rendered into the image. The
+original audio stream is copied when possible.
+
+Existing output videos are not overwritten unless you pass `--force`:
+
+```sh
+uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --force
+```
+
+The helper uses ffmpeg's `subtitles` video filter, so your ffmpeg build must
+include libass/subtitles support. Check with:
+
+```sh
+ffmpeg -filters | grep subtitles
+```
+
+To use ffmpeg's default subtitle styling:
+
+```sh
+uv run burn-subtitles path/to/input.mp4 path/to/captions.srt path/to/output.mp4 --no-style
+```
+
 ## Tests
 
 Run the test suite with:
@@ -159,7 +190,7 @@ uv run pytest
 
 The current tests cover fast behavior that does not need a real audio alignment
 run: timestamp formatting, JSON-to-SRT/VTT conversion, audio file discovery,
-overwrite handling, and CLI validation.
+overwrite handling, burn command construction, and CLI validation.
 
 ## Current Limitations
 
@@ -167,5 +198,6 @@ overwrite handling, and CLI validation.
 - Existing output files are skipped unless `--force` is passed.
 - MP3 files are converted to temporary 16 kHz mono WAV files before alignment.
 - Tests do not yet cover a full aeneas alignment against a small audio fixture.
+- Burning open captions requires an ffmpeg build with the `subtitles` filter.
 
 See `DEVELOPMENT.md` for maintainer notes and the suggested next cleanup pass.
